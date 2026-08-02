@@ -241,6 +241,13 @@ public class ShopManager {
             .sorted(Comparator.comparingInt(ShopItem::getSlot)).toList();
     }
 
+    /** Get all items that have generateUniqueId enabled (for trace tab completion). */
+    public List<ShopItem> getTraceEnabledItems() {
+        return items.values().stream()
+            .filter(ShopItem::isGenerateUniqueId)
+            .toList();
+    }
+
     // --- Cooldowns ---
     public boolean isOnCooldown(UUID playerUuid, ShopItem item) {
         if (item.getCooldownSeconds() <= 0) return false;

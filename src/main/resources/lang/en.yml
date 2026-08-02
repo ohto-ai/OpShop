@@ -303,18 +303,45 @@ command:
 
 # --- Trace ---
 trace:
-  usage: "&cUsage: /oshop admin trace [ID]"
+  usage: "&cUsage: /oshop admin trace <list|log|view> [...]"
   no-item: "&cHold an item in your main hand!"
   no-trace-id: "&7This item has no trace ID."
-  trace-id: "&aTrace ID of this item: &e{id}"
   not-found: "&cNo transaction found with trace ID &e{id}&c."
-  header: "&e===== Trace ID: {id} ====="
-  player: "&7Buyer: &f{player}"
-  item: "&7Item: &f{item}"
-  quantity: "&7Quantity: &f{count}x"
-  price: "&7Price: &f{price} {currency}"
-  time: "&7Time: &f{time}"
-  console-no-trace: "Console must specify a trace ID: /oshop admin trace <id>"
+  console-no-trace: "Console must specify a trace ID: /oshop admin trace log <id>"
+  # list
+  list:
+    usage-item: "&cUsage: /oshop admin trace list item <itemId>"
+    usage-player: "&cUsage: /oshop admin trace list player <player>"
+    header-item: "&e===== Trace records for {item} (Page {page}/{total}) ====="
+    header-player: "&e===== Trace records for {player} (Page {page}/{total}) ====="
+    no-records-item: "&7No trace records for this item."
+    no-records-player: "&7No trace records for this player."
+    record: "&7{time} &f#{id} &f{player} &7x{count} &7for &f{price} {currency}"
+  # log
+  log:
+    header: "&e===== Trace ID: {id} ====="
+    player: "&7Buyer: &f{player}"
+    item: "&7Item: &f{item}"
+    quantity: "&7Quantity: &f{count}x"
+    price: "&7Price: &f{price} {currency}"
+    time: "&7Time: &f{time}"
+  # view (GUI)
+  view:
+    title: "&8Trace #{id}"
+    info-title: "&eTrace #{id}"
+    player: "&7Buyer: &f{player}"
+    item: "&7Item: &f{item}"
+    type: "&7Type: &f{type}"
+    quantity: "&7Quantity: &f{count}x"
+    price-unit: "&7Price/unit: &f{price} {currency}"
+    total: "&7Total: &f{price} {currency}"
+    time: "&7Time: &f{time}"
+    id: "&7Trace ID: &f{id}"
+  # help
+  help-list-item: "&e/oshop admin trace list item <item> &7— List trace records for an item"
+  help-list-player: "&e/oshop admin trace list player <player> &7— List trace records for a player"
+  help-log: "&e/oshop admin trace log [ID] &7— View trace record (reads held item if no ID)"
+  help-view: "&e/oshop admin trace view [ID] &7— View trace record in GUI (reads held item if no ID)"
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7for &f{price} {currency}"

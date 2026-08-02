@@ -531,78 +531,196 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // /oshop admin trace <id> — lookup by trace ID
-        if (args.length >= 1) {
-            long traceId;
-            try {
-                traceId = Long.parseLong(args[0]);
-            } catch (NumberFormatException e) {
-                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace [ID]")));
-                return true;
-            }
-            try {
-                TransactionRecord rec = plugin.getDatabaseManager().getTransactionRepository().queryById(traceId);
-                if (rec == null) {
-                    sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                        + plugin.getMessages().get("trace.not-found", "&cNo transaction found with trace ID &e{id}&c.")
-                            .replace("{id}", String.valueOf(traceId))));
-                    return true;
-                }
-                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.header",
-                    "&e===== Trace ID: {id} =====", "{id}", String.valueOf(traceId))));
-                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.player",
-                    "&7Buyer: &f{player}", "{player}", rec.getPlayerName())));
-                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.item",
-                    "&7Item: &f{item}", "{item}", rec.getShopItemId())));
-                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.quantity",
-                    "&7Quantity: &f{count}x", "{count}", String.valueOf(rec.getQuantity()))));
-                String curName = plugin.getCurrencyManager().getProvider(rec.getCurrencyId())
-                    .map(p -> p.getDisplayName()).orElse(rec.getCurrencyId());
-                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.price",
-                    "&7Price: &f{price} {currency}",
-                    "{price}", formatPrice(rec.getTotalPrice()),
-                    "{currency}", curName)));
-                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.time",
-                    "&7Time: &f{time}", "{time}", DATE_FORMAT.format(new Date(rec.getTimestamp())))));
-            } catch (Exception e) {
-                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&cError looking up trace ID!"));
-                plugin.getLogger().log(Level.WARNING, "Failed to lookup trace ID " + traceId, e);
-            }
+        if (args.length == 0) {
+            sendTraceHelp(sender);
             return true;
         }
 
-        // /oshop admin trace (no args) — read trace ID from held item
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("trace.console-no-trace",
-                    "Console must specify a trace ID: /oshop admin trace <id>")));
-            return true;
-        }
+        return switch (args[0].toLowerCase()) {
+            case "list" -> handleTraceList(sender, Arrays.copyOfRange(args, 1, args.length));
+            case "log" -> handleTraceLog(sender, Arrays.copyOfRange(args, 1, args.length));
+            case "view" -> handleTraceView(sender, Arrays.copyOfRange(args, 1, args.length));
+            default -> { sendTraceHelp(sender); yield true; }
+        };
+    }
+
+    /** Read the trace ID from a player's held item, or -1 if not found. */
+    private long getTraceIdFromHeld(Player player) {
         ItemStack held = player.getInventory().getItemInMainHand();
-        if (held.getType() == Material.AIR) {
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("trace.no-item", "&cHold an item in your main hand!")));
-            return true;
-        }
-        if (!held.hasItemMeta()) {
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("trace.no-trace-id", "&7This item has no trace ID.")));
-            return true;
-        }
-        Long storedId = held.getItemMeta().getPersistentDataContainer()
+        if (held.getType() == Material.AIR || !held.hasItemMeta()) return -1;
+        Long id = held.getItemMeta().getPersistentDataContainer()
             .get(com.ohtoai.opshop.shop.TransactionProcessor.TRACE_ID_KEY,
                 org.bukkit.persistence.PersistentDataType.LONG);
-        if (storedId == null) {
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("trace.no-trace-id", "&7This item has no trace ID.")));
+        return id != null ? id : -1;
+    }
+
+    /** Read track_id from args or from held item. Returns -1 if not available. */
+    private long resolveTraceId(CommandSender sender, String[] args) {
+        if (args.length >= 1) {
+            try { return Long.parseLong(args[0]); }
+            catch (NumberFormatException e) { return -1; }
+        }
+        if (sender instanceof Player player) {
+            return getTraceIdFromHeld(player);
+        }
+        return -1;
+    }
+
+    private boolean handleTraceList(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace list <item|player> <value>")));
             return true;
         }
-        player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-            + plugin.getMessages().get("trace.trace-id", "&aTrace ID of this item: &e{id}",
-                "{id}", String.valueOf(storedId))));
+        String subType = args[0].toLowerCase();
+        String value = joinArgs(args, 1, args.length);
+
+        int pageSize = 10;
+        try {
+            if ("item".equals(subType)) {
+                String itemId = cleanId(value);
+                var records = plugin.getDatabaseManager().getTransactionRepository().queryByItem(itemId, 0, pageSize);
+                var total = plugin.getDatabaseManager().getTransactionRepository().countByItem(itemId);
+                int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+                if (records.isEmpty()) {
+                    sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                        + plugin.getMessages().get("trace.list.no-records-item", "&7No trace records for this item.")));
+                    return true;
+                }
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.list.header-item",
+                    "&e===== Trace records for {item} (Page {page}/{total}) =====",
+                    "{item}", itemId, "{page}", "1", "{total}", String.valueOf(totalPages))));
+                for (TransactionRecord rec : records) {
+                    sendTraceListRecord(sender, rec);
+                }
+            } else if ("player".equals(subType)) {
+                var target = Bukkit.getOfflinePlayer(value);
+                if (!target.hasPlayedBefore() && !target.isOnline()) {
+                    sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-not-found"));
+                    return true;
+                }
+                var records = plugin.getDatabaseManager().getTransactionRepository().queryByPlayer(target.getUniqueId(), 0, pageSize);
+                var total = plugin.getDatabaseManager().getTransactionRepository().countByPlayer(target.getUniqueId());
+                int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+                if (records.isEmpty()) {
+                    sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                        + plugin.getMessages().get("trace.list.no-records-player", "&7No trace records for this player.")));
+                    return true;
+                }
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.list.header-player",
+                    "&e===== Trace records for {player} (Page {page}/{total}) =====",
+                    "{player}", target.getName(), "{page}", "1", "{total}", String.valueOf(totalPages))));
+                for (TransactionRecord rec : records) {
+                    sendTraceListRecord(sender, rec);
+                }
+            } else {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace list <item|player> <value>")));
+            }
+        } catch (Exception e) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cError querying trace records!"));
+            plugin.getLogger().log(Level.WARNING, "Failed to query trace records", e);
+        }
         return true;
+    }
+
+    private void sendTraceListRecord(CommandSender sender, TransactionRecord rec) {
+        String curName = plugin.getCurrencyManager().getProvider(rec.getCurrencyId())
+            .map(p -> p.getDisplayName()).orElse(rec.getCurrencyId());
+        sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.list.record",
+            "&7{time} &f#{id} &f{player} &7x{count} &7for &f{price} {currency}",
+            "{time}", DATE_FORMAT.format(new Date(rec.getTimestamp())),
+            "{id}", String.valueOf(rec.getId()),
+            "{player}", rec.getPlayerName(),
+            "{count}", String.valueOf(rec.getQuantity()),
+            "{price}", formatPrice(rec.getTotalPrice()),
+            "{currency}", curName)));
+    }
+
+    private boolean handleTraceLog(CommandSender sender, String[] args) {
+        long traceId = resolveTraceId(sender, args);
+        if (traceId < 0) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("trace.console-no-trace")));
+            } else if (getTraceIdFromHeld((Player) sender) < 0) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("trace.no-trace-id")));
+            } else {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("trace.usage")));
+            }
+            return true;
+        }
+        return showTraceLog(sender, traceId);
+    }
+
+    private boolean showTraceLog(CommandSender sender, long traceId) {
+        try {
+            TransactionRecord rec = plugin.getDatabaseManager().getTransactionRepository().queryById(traceId);
+            if (rec == null) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("trace.not-found", "&cNo transaction found with trace ID &e{id}&c.")
+                        .replace("{id}", String.valueOf(traceId))));
+                return true;
+            }
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.log.header",
+                "&e===== Trace ID: {id} =====", "{id}", String.valueOf(traceId))));
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.log.player",
+                "&7Buyer: &f{player}", "{player}", rec.getPlayerName())));
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.log.item",
+                "&7Item: &f{item}", "{item}", rec.getShopItemId())));
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.log.quantity",
+                "&7Quantity: &f{count}x", "{count}", String.valueOf(rec.getQuantity()))));
+            String curName = plugin.getCurrencyManager().getProvider(rec.getCurrencyId())
+                .map(p -> p.getDisplayName()).orElse(rec.getCurrencyId());
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.log.price",
+                "&7Price: &f{price} {currency}",
+                "{price}", formatPrice(rec.getTotalPrice()), "{currency}", curName)));
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.log.time",
+                "&7Time: &f{time}", "{time}", DATE_FORMAT.format(new Date(rec.getTimestamp())))));
+        } catch (Exception e) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cError looking up trace ID!"));
+            plugin.getLogger().log(Level.WARNING, "Failed to lookup trace ID " + traceId, e);
+        }
+        return true;
+    }
+
+    private boolean handleTraceView(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("trace.console-no-trace")));
+            return true;
+        }
+        long traceId = resolveTraceId(sender, args);
+        if (traceId < 0) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("trace.no-trace-id")));
+            return true;
+        }
+        try {
+            TransactionRecord rec = plugin.getDatabaseManager().getTransactionRepository().queryById(traceId);
+            if (rec == null) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("trace.not-found", "&cNo transaction found with trace ID &e{id}&c.")
+                        .replace("{id}", String.valueOf(traceId))));
+                return true;
+            }
+            new com.ohtoai.opshop.gui.TraceViewGui(plugin, rec).open(player);
+        } catch (Exception e) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cError looking up trace ID!"));
+            plugin.getLogger().log(Level.WARNING, "Failed to open trace view for ID " + traceId, e);
+        }
+        return true;
+    }
+
+    private void sendTraceHelp(CommandSender sender) {
+        var m = plugin.getMessages();
+        sender.sendMessage(Messages.colorize("&e===== Trace Commands ====="));
+        sender.sendMessage(m.get("trace.help-list-item"));
+        sender.sendMessage(m.get("trace.help-list-player"));
+        sender.sendMessage(m.get("trace.help-log"));
+        sender.sendMessage(m.get("trace.help-view"));
     }
 
     // --- Help ---
@@ -632,7 +750,10 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(m.get("command.admin-logs-gui", "&e/oshop admin logs gui &7— View transactions in GUI"));
         sender.sendMessage(m.get("command.admin-reload", "&e/oshop admin reload &7— Reload config"));
         sender.sendMessage(m.get("command.admin-resetlimit", "&e/oshop admin resetlimit <player> <id> &7— Reset player purchase limit"));
-        sender.sendMessage(m.get("command.admin-trace", "&e/oshop admin trace [ID] &7— Query trace ID on held item, or lookup purchase by ID"));
+        sender.sendMessage(m.get("trace.help-list-item", "&e/oshop admin trace list item <item> &7— List trace records for an item"));
+        sender.sendMessage(m.get("trace.help-list-player", "&e/oshop admin trace list player <player> &7— List trace records for a player"));
+        sender.sendMessage(m.get("trace.help-log", "&e/oshop admin trace log [ID] &7— View trace record in chat"));
+        sender.sendMessage(m.get("trace.help-view", "&e/oshop admin trace view [ID] &7— View trace record in GUI"));
     }
 
     // --- Tab Complete ---
@@ -688,6 +809,26 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     yield plugin.getCurrencyManager().getDefinitions().entrySet().stream()
                         .filter(e -> "CUSTOM_ITEM".equalsIgnoreCase(e.getValue().type()))
                         .map(Map.Entry::getKey)
+                        .collect(Collectors.toList());
+                }
+                yield List.of();
+            }
+            case "trace" -> {
+                if (args.length == 3) {
+                    yield filter(List.of("list", "log", "view"), args[2]);
+                }
+                if (args.length == 4 && args[2].equalsIgnoreCase("list")) {
+                    yield filter(List.of("item", "player"), args[3]);
+                }
+                if (args.length == 5 && args[2].equalsIgnoreCase("list") && args[3].equalsIgnoreCase("item")) {
+                    yield plugin.getShopManager().getTraceEnabledItems().stream()
+                        .map(ShopItem::getId).map(OpShopCommand::quoteIfNeeded)
+                        .filter(s -> s.toLowerCase().startsWith(args[4].toLowerCase()))
+                        .collect(Collectors.toList());
+                }
+                if (args.length == 5 && args[2].equalsIgnoreCase("list") && args[3].equalsIgnoreCase("player")) {
+                    yield Bukkit.getOnlinePlayers().stream().map(Player::getName)
+                        .filter(s -> s.toLowerCase().startsWith(args[4].toLowerCase()))
                         .collect(Collectors.toList());
                 }
                 yield List.of();

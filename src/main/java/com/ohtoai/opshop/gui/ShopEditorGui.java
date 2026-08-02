@@ -365,12 +365,10 @@ public class ShopEditorGui implements GuiHolder {
                 m("editor.generate-id-locked", "&cSell: &4🔒 Trace ID LOCKED"),
                 List.of(m("editor.generate-id-locked-desc", "&cDisabled while Trace ID is ON."),
                     m("editor.generate-id-locked-desc2", "&7Turn off Trace ID to enable Sell."))));
-            inventory.setItem(31, GuiUtils.makeItem(
-                editingItem.isRefundLimit() ? Material.LIME_DYE : Material.GRAY_DYE, refLabel,
-                List.of(m("editor.refund-desc-1", "&7When ON: selling this item back"),
-                    m("editor.refund-desc-2", "&7restores purchase quota"),
-                    m("editor.refund-desc-3", "&7(global total_sold & player limit)."),
-                    toggleHint)));
+            inventory.setItem(31, GuiUtils.makeItem(Material.BARRIER,
+                m("editor.refund-locked", "&cRefund Limit: &4🔒 LOCKED"),
+                List.of(m("editor.refund-locked-desc", "&cDisabled while Trace ID is ON."),
+                    m("editor.refund-locked-desc2", "&7Turn off Trace ID to enable."))));
         } else {
             inventory.setItem(29, GuiUtils.makeItem(
                 editingItem.isSellEnabled() ? Material.LIME_DYE : Material.GRAY_DYE, sellLabel, List.of(toggleHint)));

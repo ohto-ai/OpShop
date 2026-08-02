@@ -300,18 +300,45 @@ command:
 
 # --- Trace ---
 trace:
-  usage: "&c用法: /oshop admin trace [ID]"
+  usage: "&c用法: /oshop admin trace <list|log|view> [...]"
   no-item: "&c请将物品拿在主手上！"
   no-trace-id: "&7该物品没有追溯ID。"
-  trace-id: "&a该物品的追溯ID: &e{id}"
   not-found: "&c未找到追溯ID为 &e{id} &c的交易记录。"
-  header: "&e===== 追溯ID: {id} ====="
-  player: "&7购买者: &f{player}"
-  item: "&7物品: &f{item}"
-  quantity: "&7数量: &f{count}x"
-  price: "&7价格: &f{price} {currency}"
-  time: "&7时间: &f{time}"
-  console-no-trace: "控制台必须指定追溯ID: /oshop admin trace <id>"
+  console-no-trace: "控制台必须指定追溯ID: /oshop admin trace log <id>"
+  # list
+  list:
+    usage-item: "&c用法: /oshop admin trace list item <物品ID>"
+    usage-player: "&c用法: /oshop admin trace list player <玩家>"
+    header-item: "&e===== 物品 {item} 的追溯记录 (第 {page}/{total} 页) ====="
+    header-player: "&e===== 玩家 {player} 的追溯记录 (第 {page}/{total} 页) ====="
+    no-records-item: "&7该物品暂无追溯记录。"
+    no-records-player: "&7该玩家暂无追溯记录。"
+    record: "&7{time} &f#{id} &f{player} &7x{count} &7花费 &f{price} {currency}"
+  # log
+  log:
+    header: "&e===== 追溯ID: {id} ====="
+    player: "&7购买者: &f{player}"
+    item: "&7物品: &f{item}"
+    quantity: "&7数量: &f{count}x"
+    price: "&7价格: &f{price} {currency}"
+    time: "&7时间: &f{time}"
+  # view (GUI)
+  view:
+    title: "&8追溯 #{id}"
+    info-title: "&e追溯 #{id}"
+    player: "&7购买者: &f{player}"
+    item: "&7物品: &f{item}"
+    type: "&7类型: &f{type}"
+    quantity: "&7数量: &f{count}x"
+    price-unit: "&7单价: &f{price} {currency}"
+    total: "&7总额: &f{price} {currency}"
+    time: "&7时间: &f{time}"
+    id: "&7追溯ID: &f{id}"
+  # help
+  help-list-item: "&e/oshop admin trace list item <物品> &7— 列出该物品的追溯记录"
+  help-list-player: "&e/oshop admin trace list player <玩家> &7— 列出该玩家的追溯记录"
+  help-log: "&e/oshop admin trace log [ID] &7— 查看追溯记录 (不填则读取手持物品)"
+  help-view: "&e/oshop admin trace view [ID] &7— GUI查看追溯记录 (不填则读取手持物品)"
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7花费 &f{price} {currency}"

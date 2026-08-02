@@ -153,7 +153,21 @@ public class TransactionProcessor {
             return Result.TRANSACTION_FAILED;
         }
 
-        // Apply placeholders
+        // For trace-ID items: insert transaction FIRST to get the ID, then write it to PDC
+        // This must happen BEFORE PlaceholderReplacer so %generated_id% can be resolved
+        long traceId = -1;
+        if (item.isGenerateUniqueId()) {
+            traceId = insertTransaction(player, item, TransactionRecord.TransactionType.BUY,
+                currencyId, selectedPrice.getBuyPrice(), quantity, totalCost, product);
+            // Write trace ID to item PDC immediately
+            var pm = product.getItemMeta();
+            pm.getPersistentDataContainer().set(
+                TRACE_ID_KEY, org.bukkit.persistence.PersistentDataType.LONG, traceId);
+            pm.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
+            product.setItemMeta(pm);
+        }
+
+        // Apply placeholders (now trace ID PDC is available for %generated_id%)
         if (item.isApplyPlaceholders()) {
             product = PlaceholderReplacer.apply(product, player);
             // Inject PDC tag so this customized item can be sold back
@@ -165,13 +179,6 @@ public class TransactionProcessor {
             product.setItemMeta(pm);
         }
 
-        // For trace-ID items: insert transaction FIRST to get the ID, then write it to the item PDC
-        long traceId = -1;
-        if (item.isGenerateUniqueId()) {
-            traceId = insertTransaction(player, item, TransactionRecord.TransactionType.BUY,
-                currencyId, selectedPrice.getBuyPrice(), quantity, totalCost, product);
-        }
-
         // Give items — pack size is defined by stored product amount
         int totalToGive = product.getAmount() * quantity;
         product.setAmount(1); // Normalize to single unit for the give loop
@@ -181,8 +188,9 @@ public class TransactionProcessor {
             int stackSize = Math.min(remaining, product.getMaxStackSize());
             ItemStack toGive = product.clone();
             toGive.setAmount(stackSize);
-            // Write trace ID to item PDC if applicable
-            if (traceId >= 0) {
+            // Re-apply trace ID PDC in case clone/placeholder replaced meta
+            if (traceId >= 0 && !toGive.getItemMeta().getPersistentDataContainer()
+                    .has(TRACE_ID_KEY, org.bukkit.persistence.PersistentDataType.LONG)) {
                 var pm = toGive.getItemMeta();
                 pm.getPersistentDataContainer().set(
                     TRACE_ID_KEY, org.bukkit.persistence.PersistentDataType.LONG, traceId);
