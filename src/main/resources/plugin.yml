@@ -1,0 +1,41 @@
+name: ${name}
+version: ${version}
+main: com.ohtoai.opshop.OpShopPlugin
+api-version: "1.20"
+description: ${description}
+author: OhtoAi
+prefix: OShop
+
+depend: [Vault]
+softdepend: [PlayerPoints, PlaceholderAPI]
+
+commands:
+  oshop:
+    description: Open the shop GUI or manage it
+    aliases: [os, shop, opshop]
+    usage: /<command> [admin|currency|reload|...]
+
+permissions:
+  opshop.use:
+    description: Allows opening and using the shop (buy & sell)
+    default: true
+  opshop.admin:
+    description: Full admin access
+    default: op
+    children:
+      opshop.use: true
+  opshop.admin.editor:
+    description: Access the shop editor GUI
+    default: op
+  opshop.admin.currency:
+    description: Manage currencies
+    default: op
+  opshop.admin.logs:
+    description: View transaction logs
+    default: op
+  opshop.buy.*:
+    description: Allows buying all items
+    default: true
+  opshop.sell.*:
+    description: Allows selling all items
+    default: true
