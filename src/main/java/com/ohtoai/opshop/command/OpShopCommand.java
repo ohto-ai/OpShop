@@ -642,13 +642,16 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         if (traceId < 0) {
             if (!(sender instanceof Player)) {
                 sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + plugin.getMessages().get("trace.console-no-trace")));
+                    + plugin.getMessages().get("trace.console-no-trace",
+                        "Console must specify a trace ID: /oshop admin trace log <id>")));
             } else if (getTraceIdFromHeld((Player) sender) < 0) {
                 sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + plugin.getMessages().get("trace.no-trace-id")));
+                    + plugin.getMessages().get("trace.no-trace-id",
+                        "&7This item has no trace ID.")));
             } else {
                 sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + plugin.getMessages().get("trace.usage")));
+                    + plugin.getMessages().get("trace.usage",
+                        "&cUsage: /oshop admin trace <list|log|view> [...]")));
             }
             return true;
         }
@@ -689,13 +692,15 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleTraceView(CommandSender sender, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("trace.console-no-trace")));
+                + plugin.getMessages().get("trace.console-no-trace",
+                    "Console must specify a trace ID: /oshop admin trace log <id>")));
             return true;
         }
         long traceId = resolveTraceId(sender, args);
         if (traceId < 0) {
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("trace.no-trace-id")));
+                + plugin.getMessages().get("trace.no-trace-id",
+                    "&7This item has no trace ID.")));
             return true;
         }
         try {
@@ -717,10 +722,10 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private void sendTraceHelp(CommandSender sender) {
         var m = plugin.getMessages();
         sender.sendMessage(Messages.colorize("&e===== Trace Commands ====="));
-        sender.sendMessage(m.get("trace.help-list-item"));
-        sender.sendMessage(m.get("trace.help-list-player"));
-        sender.sendMessage(m.get("trace.help-log"));
-        sender.sendMessage(m.get("trace.help-view"));
+        sender.sendMessage(m.get("trace.help-list-item", "&e/oshop admin trace list item <item> &7— List trace records for an item"));
+        sender.sendMessage(m.get("trace.help-list-player", "&e/oshop admin trace list player <player> &7— List trace records for a player"));
+        sender.sendMessage(m.get("trace.help-log", "&e/oshop admin trace log [ID] &7— View trace record in chat"));
+        sender.sendMessage(m.get("trace.help-view", "&e/oshop admin trace view [ID] &7— View trace record in GUI"));
     }
 
     // --- Help ---

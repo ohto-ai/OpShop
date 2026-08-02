@@ -90,6 +90,8 @@ public class TraceViewGui implements GuiHolder {
 
     @Override
     public void handleClick(InventoryClickEvent event) {
+        // Always cancel — prevent item pickup (creative middle-click, etc.)
+        event.setCancelled(true);
         if (event.getSlot() == SLOT_CLOSE) {
             event.getWhoClicked().closeInventory();
         }
