@@ -283,7 +283,7 @@ command:
   admin-currency-delete: "&e/oshop admin currency delete <id> &7— Remove custom currency"
   admin-currency-give-take: "&e/oshop admin currency give|take <plr> <id> [amt] &7— Give/take currency"
   admin-currency-setglobal: "&e/oshop admin currency setglobal <id> <buy> <sell> &7— Set global price"
-  admin-logs: "&e/oshop admin logs &7— View transactions in chat"
+  admin-logs: "&e/oshop admin logs [page] &7— View transactions in chat"
   admin-logs-gui: "&e/oshop admin logs gui &7— View transactions in GUI"
   admin-reload: "&e/oshop admin reload &7— Reload config"
   admin-trace: "&e/oshop admin trace [ID] &7— Query trace ID on held item, or lookup purchase by ID"
@@ -338,8 +338,8 @@ trace:
     time: "&7Time: &f{time}"
     id: "&7Trace ID: &f{id}"
   # help
-  help-list-item: "&e/oshop admin trace list item <item> &7— List trace records for an item"
-  help-list-player: "&e/oshop admin trace list player <player> &7— List trace records for a player"
+  help-list-item: "&e/oshop admin trace list item <item> [page] &7— List trace records for an item"
+  help-list-player: "&e/oshop admin trace list player <player> [page] &7— List trace records for a player"
   help-log: "&e/oshop admin trace log [ID] &7— View trace record (reads held item if no ID)"
   help-view: "&e/oshop admin trace view [ID] &7— View trace record in GUI (reads held item if no ID)"
 

@@ -486,15 +486,21 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // CUI mode
-        TransactionRepository repo = plugin.getDatabaseManager().getTransactionRepository();
+        // CUI mode — parse optional page number
         int page = 0;
         int pageSize = 10;
+        if (args.length > 0) {
+            try { page = Math.max(0, Integer.parseInt(args[0]) - 1); }
+            catch (NumberFormatException ignored) {}
+        }
 
+        TransactionRepository repo = plugin.getDatabaseManager().getTransactionRepository();
         try {
-            var records = repo.queryRecent(page, pageSize);
             var total = repo.count();
-            sendLogPage(sender, records, page + 1, (int) Math.ceil((double) total / pageSize));
+            int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+            if (page >= totalPages) page = totalPages - 1;
+            var records = repo.queryRecent(page, pageSize);
+            sendLogPage(sender, records, page + 1, totalPages);
         } catch (Exception e) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cError reading logs!"));
             plugin.getLogger().log(Level.WARNING, "Failed to read logs", e);
@@ -569,19 +575,28 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleTraceList(CommandSender sender, String[] args) {
         if (args.length < 2) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace list <item|player> <value>")));
+                + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace list <item|player> <value> [page]")));
             return true;
         }
         String subType = args[0].toLowerCase();
-        String value = joinArgs(args, 1, args.length);
 
+        // Parse optional page number from last argument
+        int page = 0;
         int pageSize = 10;
+        int valueEnd = args.length;
+        if (args.length >= 2 && isNumeric(args[args.length - 1])) {
+            page = Math.max(0, Integer.parseInt(args[args.length - 1]) - 1);
+            valueEnd = args.length - 1;
+        }
+        String value = joinArgs(args, 1, valueEnd);
+
         try {
             if ("item".equals(subType)) {
                 String itemId = cleanId(value);
-                var records = plugin.getDatabaseManager().getTransactionRepository().queryByItem(itemId, 0, pageSize);
                 var total = plugin.getDatabaseManager().getTransactionRepository().countByItem(itemId);
                 int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+                if (page >= totalPages) page = totalPages - 1;
+                var records = plugin.getDatabaseManager().getTransactionRepository().queryByItem(itemId, page, pageSize);
                 if (records.isEmpty()) {
                     sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                         + plugin.getMessages().get("trace.list.no-records-item", "&7No trace records for this item.")));
@@ -589,7 +604,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                 }
                 sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.list.header-item",
                     "&e===== Trace records for {item} (Page {page}/{total}) =====",
-                    "{item}", itemId, "{page}", "1", "{total}", String.valueOf(totalPages))));
+                    "{item}", itemId, "{page}", String.valueOf(page + 1), "{total}", String.valueOf(totalPages))));
                 for (TransactionRecord rec : records) {
                     sendTraceListRecord(sender, rec);
                 }
@@ -599,9 +614,10 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-not-found"));
                     return true;
                 }
-                var records = plugin.getDatabaseManager().getTransactionRepository().queryByPlayer(target.getUniqueId(), 0, pageSize);
                 var total = plugin.getDatabaseManager().getTransactionRepository().countByPlayer(target.getUniqueId());
                 int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+                if (page >= totalPages) page = totalPages - 1;
+                var records = plugin.getDatabaseManager().getTransactionRepository().queryByPlayer(target.getUniqueId(), page, pageSize);
                 if (records.isEmpty()) {
                     sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                         + plugin.getMessages().get("trace.list.no-records-player", "&7No trace records for this player.")));
@@ -609,13 +625,13 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                 }
                 sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.list.header-player",
                     "&e===== Trace records for {player} (Page {page}/{total}) =====",
-                    "{player}", target.getName(), "{page}", "1", "{total}", String.valueOf(totalPages))));
+                    "{player}", target.getName(), "{page}", String.valueOf(page + 1), "{total}", String.valueOf(totalPages))));
                 for (TransactionRecord rec : records) {
                     sendTraceListRecord(sender, rec);
                 }
             } else {
                 sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace list <item|player> <value>")));
+                    + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace list <item|player> <value> [page]")));
             }
         } catch (Exception e) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cError querying trace records!"));
@@ -751,7 +767,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(m.get("command.admin-currency-delete", "&e/oshop admin currency delete <id> &7— Remove custom currency"));
         sender.sendMessage(m.get("command.admin-currency-give-take", "&e/oshop admin currency give|take <plr> <id> [amt] &7— Give/take currency"));
         sender.sendMessage(m.get("command.admin-currency-setglobal", "&e/oshop admin currency setglobal <id> <buy> <sell> &7— Set global price"));
-        sender.sendMessage(m.get("command.admin-logs", "&e/oshop admin logs &7— View transactions in chat"));
+        sender.sendMessage(m.get("command.admin-logs", "&e/oshop admin logs [page] &7— View transactions in chat"));
         sender.sendMessage(m.get("command.admin-logs-gui", "&e/oshop admin logs gui &7— View transactions in GUI"));
         sender.sendMessage(m.get("command.admin-reload", "&e/oshop admin reload &7— Reload config"));
         sender.sendMessage(m.get("command.admin-resetlimit", "&e/oshop admin resetlimit <player> <id> &7— Reset player purchase limit"));

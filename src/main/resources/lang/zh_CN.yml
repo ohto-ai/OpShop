@@ -280,7 +280,7 @@ command:
   admin-currency-delete: "&e/oshop admin currency delete <id> &7— 删除自定义货币"
   admin-currency-give-take: "&e/oshop admin currency give|take <玩家> <id> [数量] &7— 给予/扣除货币"
   admin-currency-setglobal: "&e/oshop admin currency setglobal <id> <购买价> <出售价> &7— 设置全局默认价格"
-  admin-logs: "&e/oshop admin logs &7— 在聊天中查看交易记录"
+  admin-logs: "&e/oshop admin logs [页码] &7— 在聊天中查看交易记录"
   admin-logs-gui: "&e/oshop admin logs gui &7— 在 GUI 中查看交易记录"
   admin-reload: "&e/oshop admin reload &7— 重新加载配置"
   admin-trace: "&e/oshop admin trace [ID] &7— 查询手上物品的追溯ID，或查询指定ID的购买记录"
@@ -335,8 +335,8 @@ trace:
     time: "&7时间: &f{time}"
     id: "&7追溯ID: &f{id}"
   # help
-  help-list-item: "&e/oshop admin trace list item <物品> &7— 列出该物品的追溯记录"
-  help-list-player: "&e/oshop admin trace list player <玩家> &7— 列出该玩家的追溯记录"
+  help-list-item: "&e/oshop admin trace list item <物品> [页码] &7— 列出该物品的追溯记录"
+  help-list-player: "&e/oshop admin trace list player <玩家> [页码] &7— 列出该玩家的追溯记录"
   help-log: "&e/oshop admin trace log [ID] &7— 查看追溯记录 (不填则读取手持物品)"
   help-view: "&e/oshop admin trace view [ID] &7— GUI查看追溯记录 (不填则读取手持物品)"
 
