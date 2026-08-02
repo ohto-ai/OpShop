@@ -32,15 +32,27 @@ public class TransactionLogGui implements GuiHolder {
     private final List<TransactionRecord> records = new ArrayList<>();
     private final int totalRecords;
     private final String filterItemId;
+    private final UUID filterPlayerUuid;
+    private final String filterPlayerName;
     private String m(String k, String e, String... r) { return plugin.getMessages().get(k, e, r); }
 
     public TransactionLogGui(OpShopPlugin plugin) {
-        this(plugin, null);
+        this(plugin, null, null, null);
     }
 
     public TransactionLogGui(OpShopPlugin plugin, String filterItemId) {
+        this(plugin, filterItemId, null, null);
+    }
+
+    public TransactionLogGui(OpShopPlugin plugin, UUID playerUuid, String playerName) {
+        this(plugin, null, playerUuid, playerName);
+    }
+
+    private TransactionLogGui(OpShopPlugin plugin, String filterItemId, UUID filterPlayerUuid, String filterPlayerName) {
         this.plugin = plugin;
         this.filterItemId = filterItemId;
+        this.filterPlayerUuid = filterPlayerUuid;
+        this.filterPlayerName = filterPlayerName;
         // Load records (filtered or all)
         int count = 0;
         try {
@@ -48,6 +60,9 @@ public class TransactionLogGui implements GuiHolder {
             if (filterItemId != null) {
                 this.records.addAll(repo.queryByItem(filterItemId, 0, 500));
                 count = (int) repo.countByItem(filterItemId);
+            } else if (filterPlayerUuid != null) {
+                this.records.addAll(repo.queryByPlayer(filterPlayerUuid, 0, 500));
+                count = (int) repo.countByPlayer(filterPlayerUuid);
             } else {
                 this.records.addAll(repo.queryRecent(0, 500));
                 count = (int) repo.count();
@@ -67,6 +82,8 @@ public class TransactionLogGui implements GuiHolder {
     private void buildInventory() {
         String title = filterItemId != null
             ? m("gui.log.title-item", "&8Log: {id}", "{id}", filterItemId)
+            : filterPlayerName != null
+            ? m("gui.log.title-player", "&8Log: {player}", "{player}", filterPlayerName)
             : m("gui.log.title", "&8Transaction Log");
         this.inventory = GuiUtils.createInventory(this, ROWS, title);
 

@@ -85,6 +85,7 @@ gui:
   log:
     title: "&8Transaction Log"
     title-item: "&8Log: {id}"
+    title-player: "&8Log: {player}"
     prev-page: "&a← Previous"
     next-page: "&aNext →"
     page: "&ePage {p}/{t}"
@@ -283,10 +284,10 @@ command:
   admin-currency-delete: "&e/oshop admin currency delete <id> &7— Remove custom currency"
   admin-currency-give-take: "&e/oshop admin currency give|take <plr> <id> [amt] &7— Give/take currency"
   admin-currency-setglobal: "&e/oshop admin currency setglobal <id> <buy> <sell> &7— Set global price"
-  admin-logs: "&e/oshop admin logs [page] &7— View transactions in chat"
-  admin-logs-gui: "&e/oshop admin logs gui &7— View transactions in GUI"
+  admin-log: "&e/oshop admin log [player|item] [page] &7— View transactions in chat"
+  admin-view: "&e/oshop admin view [player|item] &7— View transactions in GUI"
   admin-reload: "&e/oshop admin reload &7— Reload config"
-  admin-trace: "&e/oshop admin trace [ID] &7— Query trace ID on held item, or lookup purchase by ID"
+  admin-trace: "&e/oshop admin trace <list|log|view> [...] &7— Trace ID management"
   open-shop-for: "&aOpened shop for {player}"
   open-sell-for: "&aOpened sell mode for {player}"
   gave-item: "&aGave {amount}x {id} to {player}"
@@ -342,6 +343,22 @@ trace:
   help-list-player: "&e/oshop admin trace list player <player> [page] &7— List trace records for a player"
   help-log: "&e/oshop admin trace log [ID] &7— View trace record (reads held item if no ID)"
   help-view: "&e/oshop admin trace view [ID] &7— View trace record in GUI (reads held item if no ID)"
+  not-trace-item: "&7This item does not have Trace ID enabled."
+
+# --- Log (chat) ---
+log:
+  usage: "&cUsage: /oshop admin log [player <name>|item <id>] [page]"
+  usage-player: "&cUsage: /oshop admin log player <player> [page]"
+  usage-item: "&cUsage: /oshop admin log item <itemId> [page]"
+  header: "&eTransaction Log (Page {page}/{total})"
+  header-filter: "&eTransaction Log: {filter} (Page {page}/{total})"
+  no-records: "&7No transactions recorded yet."
+
+# --- View (GUI) ---
+view:
+  usage: "&cUsage: /oshop admin view [player <name>|item <id>]"
+  usage-player: "&cUsage: /oshop admin view player <player>"
+  usage-item: "&cUsage: /oshop admin view item <itemId>"
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7for &f{price} {currency}"

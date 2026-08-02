@@ -104,7 +104,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             case "reload" -> handleReload(sender);
             case "currency" -> handleCurrency(sender, Arrays.copyOfRange(args, 1, args.length));
             case "resetlimit" -> handleResetLimit(sender, args);
-            case "logs" -> handleLogs(sender, Arrays.copyOfRange(args, 1, args.length));
+            case "log" -> handleLog(sender, Arrays.copyOfRange(args, 1, args.length));
+            case "view" -> handleView(sender, Arrays.copyOfRange(args, 1, args.length));
             case "trace" -> handleTrace(sender, Arrays.copyOfRange(args, 1, args.length));
             default -> { sendAdminHelp(sender); yield true; }
         };
@@ -468,39 +469,77 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    // --- Logs ---
+    // --- Log (chat-based transaction viewer) ---
 
-    private boolean handleLogs(CommandSender sender, String[] args) {
+    private boolean handleLog(CommandSender sender, String[] args) {
         if (!sender.hasPermission("opshop.admin.logs")) {
             sender.sendMessage(plugin.getMessages().get("no-permission"));
             return true;
         }
 
-        // GUI mode
-        if (args.length > 0 && args[0].equalsIgnoreCase("gui")) {
-            if (!(sender instanceof Player player)) {
-                sender.sendMessage(plugin.getMessages().get("command.console-no-log-gui", "Console cannot open the log GUI."));
+        int pageSize = 10;
+        int page = 0;
+
+        if (args.length == 0) {
+            // /oshop admin log — show all recent
+            return showLogRecent(sender, page);
+        }
+
+        // Check for subcommand or page number
+        String first = args[0].toLowerCase();
+        if ("player".equals(first)) {
+            if (args.length < 2) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("log.usage-player", "&cUsage: /oshop admin log player <player> [page]")));
                 return true;
             }
-            new com.ohtoai.opshop.gui.TransactionLogGui(plugin).open(player);
-            return true;
+            // Parse page from last arg
+            int nameEnd = args.length;
+            if (isNumeric(args[args.length - 1])) {
+                page = Math.max(0, Integer.parseInt(args[args.length - 1]) - 1);
+                nameEnd = args.length - 1;
+            }
+            String playerName = joinArgs(args, 1, nameEnd);
+            var target = Bukkit.getOfflinePlayer(playerName);
+            if (!target.hasPlayedBefore() && !target.isOnline()) {
+                sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-not-found"));
+                return true;
+            }
+            return showLogByPlayer(sender, target.getUniqueId(), target.getName(), page);
+        } else if ("item".equals(first)) {
+            if (args.length < 2) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("log.usage-item", "&cUsage: /oshop admin log item <itemId> [page]")));
+                return true;
+            }
+            int idEnd = args.length;
+            if (isNumeric(args[args.length - 1])) {
+                page = Math.max(0, Integer.parseInt(args[args.length - 1]) - 1);
+                idEnd = args.length - 1;
+            }
+            String itemId = cleanId(joinArgs(args, 1, idEnd));
+            return showLogByItem(sender, itemId, page);
+        } else {
+            // Try to parse as page number
+            try { page = Math.max(0, Integer.parseInt(first) - 1); }
+            catch (NumberFormatException e) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("log.usage", "&cUsage: /oshop admin log [player <name>|item <id>] [page]")));
+                return true;
+            }
+            return showLogRecent(sender, page);
         }
+    }
 
-        // CUI mode — parse optional page number
-        int page = 0;
+    private boolean showLogRecent(CommandSender sender, int page) {
         int pageSize = 10;
-        if (args.length > 0) {
-            try { page = Math.max(0, Integer.parseInt(args[0]) - 1); }
-            catch (NumberFormatException ignored) {}
-        }
-
         TransactionRepository repo = plugin.getDatabaseManager().getTransactionRepository();
         try {
             var total = repo.count();
             int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
             if (page >= totalPages) page = totalPages - 1;
             var records = repo.queryRecent(page, pageSize);
-            sendLogPage(sender, records, page + 1, totalPages);
+            sendLogPage(sender, records, page + 1, totalPages, null);
         } catch (Exception e) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cError reading logs!"));
             plugin.getLogger().log(Level.WARNING, "Failed to read logs", e);
@@ -508,12 +547,47 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    private void sendLogPage(CommandSender sender, List<TransactionRecord> records, int page, int totalPages) {
-        sender.sendMessage(plugin.getMessages().getPrefix()
-            + plugin.getMessages().get("gui.log.log-header", "&eTransaction Log (Page {page}/{total})",
-                "{page}", String.valueOf(page), "{total}", String.valueOf(totalPages)));
+    private boolean showLogByPlayer(CommandSender sender, UUID puid, String name, int page) {
+        int pageSize = 10;
+        TransactionRepository repo = plugin.getDatabaseManager().getTransactionRepository();
+        try {
+            var total = repo.countByPlayer(puid);
+            int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+            if (page >= totalPages) page = totalPages - 1;
+            var records = repo.queryByPlayer(puid, page, pageSize);
+            sendLogPage(sender, records, page + 1, totalPages, "Player: " + name);
+        } catch (Exception e) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cError reading logs!"));
+            plugin.getLogger().log(Level.WARNING, "Failed to read logs by player", e);
+        }
+        return true;
+    }
+
+    private boolean showLogByItem(CommandSender sender, String itemId, int page) {
+        int pageSize = 10;
+        TransactionRepository repo = plugin.getDatabaseManager().getTransactionRepository();
+        try {
+            var total = repo.countByItem(itemId);
+            int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+            if (page >= totalPages) page = totalPages - 1;
+            var records = repo.queryByItem(itemId, page, pageSize);
+            sendLogPage(sender, records, page + 1, totalPages, "Item: " + itemId);
+        } catch (Exception e) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cError reading logs!"));
+            plugin.getLogger().log(Level.WARNING, "Failed to read logs by item", e);
+        }
+        return true;
+    }
+
+    private void sendLogPage(CommandSender sender, List<TransactionRecord> records, int page, int totalPages, String filter) {
+        String header = filter != null
+            ? plugin.getMessages().get("log.header-filter", "&eTransaction Log: {filter} (Page {page}/{total})",
+                "{filter}", filter, "{page}", String.valueOf(page), "{total}", String.valueOf(totalPages))
+            : plugin.getMessages().get("log.header", "&eTransaction Log (Page {page}/{total})",
+                "{page}", String.valueOf(page), "{total}", String.valueOf(totalPages));
+        sender.sendMessage(plugin.getMessages().getPrefix() + header);
         if (records.isEmpty()) {
-            sender.sendMessage(plugin.getMessages().get("gui.log.no-records", "&7No transactions recorded yet."));
+            sender.sendMessage(plugin.getMessages().get("log.no-records", "&7No transactions recorded yet."));
             return;
         }
         for (TransactionRecord rec : records) {
@@ -527,6 +601,54 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                 "{price}", formatPrice(rec.getTotalPrice()),
                 "{currency}", rec.getCurrencyId())));
         }
+    }
+
+    // --- View (GUI-based transaction viewer) ---
+
+    private boolean handleView(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("opshop.admin.logs")) {
+            sender.sendMessage(plugin.getMessages().get("no-permission"));
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("command.console-no-log-gui", "Console cannot open the log GUI.")));
+            return true;
+        }
+
+        if (args.length == 0) {
+            // /oshop admin view — show all
+            new com.ohtoai.opshop.gui.TransactionLogGui(plugin).open(player);
+            return true;
+        }
+
+        String first = args[0].toLowerCase();
+        if ("player".equals(first)) {
+            if (args.length < 2) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("view.usage-player", "&cUsage: /oshop admin view player <player>")));
+                return true;
+            }
+            String playerName = joinArgs(args, 1, args.length);
+            var target = Bukkit.getOfflinePlayer(playerName);
+            if (!target.hasPlayedBefore() && !target.isOnline()) {
+                player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-not-found"));
+                return true;
+            }
+            new com.ohtoai.opshop.gui.TransactionLogGui(plugin, target.getUniqueId(), target.getName()).open(player);
+        } else if ("item".equals(first)) {
+            if (args.length < 2) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("view.usage-item", "&cUsage: /oshop admin view item <itemId>")));
+                return true;
+            }
+            String itemId = cleanId(joinArgs(args, 1, args.length));
+            new com.ohtoai.opshop.gui.TransactionLogGui(plugin, itemId).open(player);
+        } else {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("view.usage", "&cUsage: /oshop admin view [player <name>|item <id>]")));
+        }
+        return true;
     }
 
     // --- Trace ---
@@ -590,14 +712,24 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
         String value = joinArgs(args, 1, valueEnd);
 
+        // Collect trace-enabled item IDs for filtering
+        Set<String> traceItemIds = plugin.getShopManager().getTraceEnabledItems().stream()
+            .map(com.ohtoai.opshop.shop.ShopItem::getId).collect(Collectors.toSet());
+
         try {
             if ("item".equals(subType)) {
                 String itemId = cleanId(value);
+                // Only show if this item has trace enabled
+                if (!traceItemIds.contains(itemId)) {
+                    sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                        + plugin.getMessages().get("trace.list.not-trace-item", "&7This item does not have Trace ID enabled.")));
+                    return true;
+                }
+                var records = plugin.getDatabaseManager().getTransactionRepository().queryByItem(itemId, page, pageSize);
                 var total = plugin.getDatabaseManager().getTransactionRepository().countByItem(itemId);
                 int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
                 if (page >= totalPages) page = totalPages - 1;
-                var records = plugin.getDatabaseManager().getTransactionRepository().queryByItem(itemId, page, pageSize);
-                if (records.isEmpty()) {
+                if (total == 0) {
                     sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                         + plugin.getMessages().get("trace.list.no-records-item", "&7No trace records for this item.")));
                     return true;
@@ -614,20 +746,27 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-not-found"));
                     return true;
                 }
-                var total = plugin.getDatabaseManager().getTransactionRepository().countByPlayer(target.getUniqueId());
-                int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
-                if (page >= totalPages) page = totalPages - 1;
-                var records = plugin.getDatabaseManager().getTransactionRepository().queryByPlayer(target.getUniqueId(), page, pageSize);
-                if (records.isEmpty()) {
+                // Fetch all records and filter to only trace-enabled items (paginated in memory)
+                var allRecords = plugin.getDatabaseManager().getTransactionRepository()
+                    .queryByPlayer(target.getUniqueId(), 0, 500);
+                var traceRecords = allRecords.stream()
+                    .filter(r -> traceItemIds.contains(r.getShopItemId()))
+                    .toList();
+                if (traceRecords.isEmpty()) {
                     sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                         + plugin.getMessages().get("trace.list.no-records-player", "&7No trace records for this player.")));
                     return true;
                 }
+                int total = traceRecords.size();
+                int totalPages = Math.max(1, (int) Math.ceil((double) total / pageSize));
+                if (page >= totalPages) page = totalPages - 1;
+                int start = page * pageSize;
+                int end = Math.min(start + pageSize, total);
                 sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.list.header-player",
                     "&e===== Trace records for {player} (Page {page}/{total}) =====",
                     "{player}", target.getName(), "{page}", String.valueOf(page + 1), "{total}", String.valueOf(totalPages))));
-                for (TransactionRecord rec : records) {
-                    sendTraceListRecord(sender, rec);
+                for (int i = start; i < end; i++) {
+                    sendTraceListRecord(sender, traceRecords.get(i));
                 }
             } else {
                 sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
@@ -767,8 +906,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(m.get("command.admin-currency-delete", "&e/oshop admin currency delete <id> &7— Remove custom currency"));
         sender.sendMessage(m.get("command.admin-currency-give-take", "&e/oshop admin currency give|take <plr> <id> [amt] &7— Give/take currency"));
         sender.sendMessage(m.get("command.admin-currency-setglobal", "&e/oshop admin currency setglobal <id> <buy> <sell> &7— Set global price"));
-        sender.sendMessage(m.get("command.admin-logs", "&e/oshop admin logs [page] &7— View transactions in chat"));
-        sender.sendMessage(m.get("command.admin-logs-gui", "&e/oshop admin logs gui &7— View transactions in GUI"));
+        sender.sendMessage(m.get("command.admin-log", "&e/oshop admin log [player|item] [page] &7— View transactions in chat"));
+        sender.sendMessage(m.get("command.admin-view", "&e/oshop admin view [player|item] &7— View transactions in GUI"));
         sender.sendMessage(m.get("command.admin-reload", "&e/oshop admin reload &7— Reload config"));
         sender.sendMessage(m.get("command.admin-resetlimit", "&e/oshop admin resetlimit <player> <id> &7— Reset player purchase limit"));
         sender.sendMessage(m.get("trace.help-list-item", "&e/oshop admin trace list item <item> &7— List trace records for an item"));
@@ -788,7 +927,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         if (!args[0].equalsIgnoreCase("admin")) return List.of();
 
         if (args.length == 2) {
-            return filter(List.of("editor", "add", "delete", "give", "reload", "currency", "logs", "resetlimit", "trace"), args[1]);
+            return filter(List.of("editor", "add", "delete", "give", "reload", "currency", "log", "view", "resetlimit", "trace"), args[1]);
         }
 
         return switch (args[1].toLowerCase()) {
@@ -830,6 +969,40 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     yield plugin.getCurrencyManager().getDefinitions().entrySet().stream()
                         .filter(e -> "CUSTOM_ITEM".equalsIgnoreCase(e.getValue().type()))
                         .map(Map.Entry::getKey)
+                        .collect(Collectors.toList());
+                }
+                yield List.of();
+            }
+            case "log" -> {
+                if (args.length == 3) {
+                    yield filter(List.of("player", "item"), args[2]);
+                }
+                if (args.length >= 4 && args[2].equalsIgnoreCase("player")) {
+                    yield Bukkit.getOnlinePlayers().stream().map(Player::getName)
+                        .filter(s -> s.toLowerCase().startsWith(args[args.length - 1].toLowerCase()))
+                        .collect(Collectors.toList());
+                }
+                if (args.length >= 4 && args[2].equalsIgnoreCase("item")) {
+                    yield plugin.getShopManager().getAllItems().stream().map(ShopItem::getId)
+                        .map(OpShopCommand::quoteIfNeeded)
+                        .filter(s -> s.toLowerCase().startsWith(args[args.length - 1].toLowerCase()))
+                        .collect(Collectors.toList());
+                }
+                yield List.of();
+            }
+            case "view" -> {
+                if (args.length == 3) {
+                    yield filter(List.of("player", "item"), args[2]);
+                }
+                if (args.length >= 4 && args[2].equalsIgnoreCase("player")) {
+                    yield Bukkit.getOnlinePlayers().stream().map(Player::getName)
+                        .filter(s -> s.toLowerCase().startsWith(args[args.length - 1].toLowerCase()))
+                        .collect(Collectors.toList());
+                }
+                if (args.length >= 4 && args[2].equalsIgnoreCase("item")) {
+                    yield plugin.getShopManager().getAllItems().stream().map(ShopItem::getId)
+                        .map(OpShopCommand::quoteIfNeeded)
+                        .filter(s -> s.toLowerCase().startsWith(args[args.length - 1].toLowerCase()))
                         .collect(Collectors.toList());
                 }
                 yield List.of();

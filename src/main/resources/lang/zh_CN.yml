@@ -85,6 +85,7 @@ gui:
   log:
     title: "&8交易记录"
     title-item: "&8记录: {id}"
+    title-player: "&8记录: {player}"
     prev-page: "&a← 上一页"
     next-page: "&a下一页 →"
     page: "&e第 {p}/{t} 页"
@@ -280,10 +281,10 @@ command:
   admin-currency-delete: "&e/oshop admin currency delete <id> &7— 删除自定义货币"
   admin-currency-give-take: "&e/oshop admin currency give|take <玩家> <id> [数量] &7— 给予/扣除货币"
   admin-currency-setglobal: "&e/oshop admin currency setglobal <id> <购买价> <出售价> &7— 设置全局默认价格"
-  admin-logs: "&e/oshop admin logs [页码] &7— 在聊天中查看交易记录"
-  admin-logs-gui: "&e/oshop admin logs gui &7— 在 GUI 中查看交易记录"
+  admin-log: "&e/oshop admin log [player|item] [页码] &7— 在聊天中查看交易记录"
+  admin-view: "&e/oshop admin view [player|item] &7— 在 GUI 中查看交易记录"
   admin-reload: "&e/oshop admin reload &7— 重新加载配置"
-  admin-trace: "&e/oshop admin trace [ID] &7— 查询手上物品的追溯ID，或查询指定ID的购买记录"
+  admin-trace: "&e/oshop admin trace <list|log|view> [...] &7— 追溯ID管理"
   open-shop-for: "&a已为 {player} 打开商店"
   open-sell-for: "&a已为 {player} 打开出售模式"
   gave-item: "&a已向 {player} 给予 {amount}x {id}"
@@ -339,6 +340,22 @@ trace:
   help-list-player: "&e/oshop admin trace list player <玩家> [页码] &7— 列出该玩家的追溯记录"
   help-log: "&e/oshop admin trace log [ID] &7— 查看追溯记录 (不填则读取手持物品)"
   help-view: "&e/oshop admin trace view [ID] &7— GUI查看追溯记录 (不填则读取手持物品)"
+  not-trace-item: "&7该物品未开启追溯ID。"
+
+# --- Log (chat) ---
+log:
+  usage: "&c用法: /oshop admin log [player <玩家>|item <物品ID>] [页码]"
+  usage-player: "&c用法: /oshop admin log player <玩家> [页码]"
+  usage-item: "&c用法: /oshop admin log item <物品ID> [页码]"
+  header: "&e交易记录 (第 {page}/{total} 页)"
+  header-filter: "&e交易记录: {filter} (第 {page}/{total} 页)"
+  no-records: "&7暂无交易记录。"
+
+# --- View (GUI) ---
+view:
+  usage: "&c用法: /oshop admin view [player <玩家>|item <物品ID>]"
+  usage-player: "&c用法: /oshop admin view player <玩家>"
+  usage-item: "&c用法: /oshop admin view item <物品ID>"
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7花费 &f{price} {currency}"
