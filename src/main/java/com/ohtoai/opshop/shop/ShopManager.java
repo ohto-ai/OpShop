@@ -53,6 +53,7 @@ public class ShopManager {
                 item.setTotalSold(getColumnInt(rs, "total_sold"));
                 item.setPlayerLimit(rs.getInt("player_limit"));
                 item.setRefundLimit(getColumnBoolean(rs, "refund_limit"));
+                item.setGenerateUniqueId(getColumnBoolean(rs, "generate_unique_id"));
                 // New pricing columns (may not exist in old DB, default to 0)
                 item.setVaultBuyPrice(getColumnDouble(rs, "vault_buy_price"));
                 item.setVaultSellPrice(getColumnDouble(rs, "vault_sell_price"));
@@ -89,11 +90,11 @@ public class ShopManager {
             INSERT INTO shop_items (id, page, slot, category, display_item, product_item,
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
-                total_limit, total_sold, player_limit, refund_limit,
+                total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON DUPLICATE KEY UPDATE
                 page=VALUES(page), slot=VALUES(slot), display_item=VALUES(display_item), product_item=VALUES(product_item),
                 use_global_defaults=VALUES(use_global_defaults), buy_enabled=VALUES(buy_enabled),
@@ -101,6 +102,7 @@ public class ShopManager {
                 cooldown_seconds=VALUES(cooldown_seconds), permission_required=VALUES(permission_required),
                 apply_placeholders=VALUES(apply_placeholders), total_limit=VALUES(total_limit),
                 total_sold=VALUES(total_sold), player_limit=VALUES(player_limit), refund_limit=VALUES(refund_limit),
+                generate_unique_id=VALUES(generate_unique_id),
                 vault_buy_price=VALUES(vault_buy_price), vault_sell_price=VALUES(vault_sell_price),
                 pp_buy_price=VALUES(pp_buy_price), pp_sell_price=VALUES(pp_sell_price),
                 custom_currency_id=VALUES(custom_currency_id), custom_buy_price=VALUES(custom_buy_price),
@@ -109,11 +111,11 @@ public class ShopManager {
             INSERT OR REPLACE INTO shop_items (id, page, slot, category, display_item, product_item,
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
-                total_limit, total_sold, player_limit, refund_limit,
+                total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
         try (Connection conn = databaseManager.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -136,6 +138,7 @@ public class ShopManager {
             ps.setInt(i++, item.getTotalSold());
             ps.setInt(i++, item.getPlayerLimit());
             ps.setBoolean(i++, item.isRefundLimit());
+            ps.setBoolean(i++, item.isGenerateUniqueId());
             ps.setDouble(i++, item.getVaultBuyPrice());
             ps.setDouble(i++, item.getVaultSellPrice());
             ps.setDouble(i++, item.getPpBuyPrice());

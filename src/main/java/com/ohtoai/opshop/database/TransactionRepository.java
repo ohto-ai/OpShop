@@ -100,6 +100,19 @@ public class TransactionRepository {
     }
 
     /**
+     * Query a single transaction by its auto-increment ID (for trace lookup).
+     */
+    public TransactionRecord queryById(long id) throws SQLException {
+        String sql = "SELECT * FROM transactions WHERE id = ?";
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            List<TransactionRecord> results = mapResults(ps);
+            return results.isEmpty() ? null : results.get(0);
+        }
+    }
+
+    /**
      * Count transactions by item.
      */
     public long countByItem(String shopItemId) throws SQLException {

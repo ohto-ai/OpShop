@@ -215,6 +215,8 @@ public class DatabaseManager {
             stmt.execute(isMysql ? CREATE_PLAYER_PURCHASES_MYSQL : CREATE_PLAYER_PURCHASES);
             // Migration: add refund_limit column (silently skip if already exists)
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN refund_limit BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
+            // Migration: add generate_unique_id column
+            try { stmt.execute("ALTER TABLE shop_items ADD COLUMN generate_unique_id BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
         }
     }
 

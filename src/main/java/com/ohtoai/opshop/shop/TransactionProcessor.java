@@ -144,7 +144,7 @@ public class TransactionProcessor {
             return Result.TRANSACTION_FAILED;
         }
 
-        // Build and give the product item
+        // Build the product item
         byte[] productData = item.getProductItem();
         ItemStack product = ItemSerializer.deserialize(productData);
         if (product == null) {
@@ -165,6 +165,13 @@ public class TransactionProcessor {
             product.setItemMeta(pm);
         }
 
+        // For trace-ID items: insert transaction FIRST to get the ID, then write it to the item PDC
+        long traceId = -1;
+        if (item.isGenerateUniqueId()) {
+            traceId = insertTransaction(player, item, TransactionRecord.TransactionType.BUY,
+                currencyId, selectedPrice.getBuyPrice(), quantity, totalCost, product);
+        }
+
         // Give items — pack size is defined by stored product amount
         int totalToGive = product.getAmount() * quantity;
         product.setAmount(1); // Normalize to single unit for the give loop
@@ -174,6 +181,14 @@ public class TransactionProcessor {
             int stackSize = Math.min(remaining, product.getMaxStackSize());
             ItemStack toGive = product.clone();
             toGive.setAmount(stackSize);
+            // Write trace ID to item PDC if applicable
+            if (traceId >= 0) {
+                var pm = toGive.getItemMeta();
+                pm.getPersistentDataContainer().set(
+                    TRACE_ID_KEY, org.bukkit.persistence.PersistentDataType.LONG, traceId);
+                pm.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
+                toGive.setItemMeta(pm);
+            }
             var leftover = player.getInventory().addItem(toGive);
             if (!leftover.isEmpty()) {
                 for (ItemStack drop : leftover.values()) {
@@ -204,9 +219,11 @@ public class TransactionProcessor {
         // Always track per-player purchases (needed for resetlimit regardless of playerLimit)
         try { shopManager.incrementPlayerPurchase(player.getUniqueId(), item.getId(), quantity); } catch (SQLException e) { plugin.getLogger().log(Level.WARNING, "Failed to update player count", e); }
 
-        // Log transaction
-        logTransaction(player, item, TransactionRecord.TransactionType.BUY,
-            currencyId, selectedPrice.getBuyPrice(), quantity, totalCost, product);
+        // Log transaction (for non-trace-ID items; trace-ID items were already logged above)
+        if (!item.isGenerateUniqueId()) {
+            logTransaction(player, item, TransactionRecord.TransactionType.BUY,
+                currencyId, selectedPrice.getBuyPrice(), quantity, totalCost, product);
+        }
 
         // Success feedback
         String productName = getProductName(product);
@@ -216,6 +233,9 @@ public class TransactionProcessor {
             "{item}", productName,
             "{price}", priceFormatted,
             "{currency}", provider.getDisplayName());
+        if (traceId >= 0) {
+            msg += " &7[Trace ID: &f" + traceId + "&7]";
+        }
         player.sendMessage(plugin.getMessages().get("prefix") + msg);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.2f);
 
@@ -355,6 +375,8 @@ public class TransactionProcessor {
 
     private static final org.bukkit.NamespacedKey SELL_MATCH_KEY =
         new org.bukkit.NamespacedKey("opshop", "item_id");
+    public static final org.bukkit.NamespacedKey TRACE_ID_KEY =
+        new org.bukkit.NamespacedKey("opshop", "trace_id");
 
     /** Match for sell: pdcId != null → check PDC tag + isSimilar; pdcId == null → use isSimilar(). */
     private static boolean matchesForSell(ItemStack stack, ItemStack template, String pdcId) {
@@ -423,6 +445,34 @@ public class TransactionProcessor {
             databaseManager.getTransactionRepository().insert(rec);
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to log transaction", e);
+        }
+    }
+
+    /**
+     * Insert a transaction and return the generated ID.
+     * Used for trace-ID items where the ID must be written to the item before giving it.
+     */
+    private long insertTransaction(Player player, ShopItem item,
+                                   TransactionRecord.TransactionType type,
+                                   String currencyId, double pricePerUnit,
+                                   int quantity, double totalPrice, ItemStack product) {
+        try {
+            TransactionRecord rec = new TransactionRecord(
+                player.getUniqueId(),
+                player.getName(),
+                item.getId(),
+                type,
+                currencyId,
+                pricePerUnit,
+                quantity,
+                totalPrice,
+                ItemSerializer.serialize(product),
+                System.currentTimeMillis()
+            );
+            return databaseManager.getTransactionRepository().insert(rec);
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to insert transaction for trace ID", e);
+            return -1;
         }
     }
 }

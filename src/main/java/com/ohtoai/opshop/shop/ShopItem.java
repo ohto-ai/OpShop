@@ -21,6 +21,7 @@ public class ShopItem {
     private int totalSold = 0;
     private int playerLimit = -1;
     private boolean refundLimit = false;
+    private boolean generateUniqueId = false;
 
     // Three-currency pricing
     private double vaultBuyPrice = 0;
@@ -58,6 +59,7 @@ public class ShopItem {
     public int getTotalSold() { return totalSold; }
     public int getPlayerLimit() { return playerLimit; }
     public boolean isRefundLimit() { return refundLimit; }
+    public boolean isGenerateUniqueId() { return generateUniqueId; }
 
     public double getVaultBuyPrice() { return vaultBuyPrice; }
     public double getVaultSellPrice() { return vaultSellPrice; }
@@ -85,6 +87,7 @@ public class ShopItem {
     public void setTotalSold(int v) { this.totalSold = v; touch(); }
     public void setPlayerLimit(int v) { this.playerLimit = v; touch(); }
     public void setRefundLimit(boolean v) { this.refundLimit = v; touch(); }
+    public void setGenerateUniqueId(boolean v) { this.generateUniqueId = v; touch(); }
 
     public void setVaultBuyPrice(double v) { this.vaultBuyPrice = v; touch(); }
     public void setVaultSellPrice(double v) { this.vaultSellPrice = v; touch(); }

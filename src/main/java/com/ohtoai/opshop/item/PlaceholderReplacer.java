@@ -34,6 +34,7 @@ import java.util.List;
  *   <li>{@code %player_gamemode%} — player game mode</li>
  *   <li>{@code %server_online%} — online player count</li>
  *   <li>{@code %server_max%} — max player slots</li>
+ *   <li>{@code %generated_id%} — trace ID from item PDC (empty if not present)</li>
  * </ul>
  * If PlaceholderAPI is present, all {@code %papi_xxx%} placeholders are also resolved.
  */
@@ -73,7 +74,8 @@ public final class PlaceholderReplacer {
             "%player_food%",
             "%player_gamemode%",
             "%server_online%",
-            "%server_max%"
+            "%server_max%",
+            "%generated_id%"
         );
     }
 
@@ -81,7 +83,7 @@ public final class PlaceholderReplacer {
     public static String resolveSingle(String placeholder, Player player) {
         // Create a dummy component containing just the placeholder, resolve it, extract value
         Component dummy = Component.text(placeholder);
-        Component resolved = replaceBuiltins(dummy, player, player.getName(), player.getUniqueId().toString());
+        Component resolved = replaceBuiltins(dummy, player, player.getName(), player.getUniqueId().toString(), "");
         String plain = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
             .plainText().serialize(resolved);
         if (plain.equals(placeholder)) return placeholder + " → &7(n/a)";
@@ -98,13 +100,24 @@ public final class PlaceholderReplacer {
         String playerName = player.getName();
         String playerUuid = player.getUniqueId().toString();
 
+        // Read trace ID from item PDC for %generated_id% placeholder
+        String generatedId = "";
+        if (meta.getPersistentDataContainer().has(
+                com.ohtoai.opshop.shop.TransactionProcessor.TRACE_ID_KEY,
+                org.bukkit.persistence.PersistentDataType.LONG)) {
+            Long traceId = meta.getPersistentDataContainer().get(
+                com.ohtoai.opshop.shop.TransactionProcessor.TRACE_ID_KEY,
+                org.bukkit.persistence.PersistentDataType.LONG);
+            if (traceId != null) generatedId = String.valueOf(traceId);
+        }
+
         if (meta.hasDisplayName()) {
-            meta.displayName(replaceBuiltins(meta.displayName(), player, playerName, playerUuid));
+            meta.displayName(replaceBuiltins(meta.displayName(), player, playerName, playerUuid, generatedId));
         }
         if (meta.hasLore()) {
             List<Component> newLore = new ArrayList<>();
             for (Component line : meta.lore()) {
-                newLore.add(replaceBuiltins(line, player, playerName, playerUuid));
+                newLore.add(replaceBuiltins(line, player, playerName, playerUuid, generatedId));
             }
             meta.lore(newLore);
         }
@@ -118,7 +131,8 @@ public final class PlaceholderReplacer {
      * (italic, color, bold, hover events, etc.) on the surrounding text node.
      */
     private static Component replaceBuiltins(Component c, Player player,
-                                             String playerName, String playerUuid) {
+                                             String playerName, String playerUuid,
+                                             String generatedId) {
         Component result = c;
 
         // --- Player identity ---
@@ -154,6 +168,10 @@ public final class PlaceholderReplacer {
             .replacement(String.valueOf(Bukkit.getOnlinePlayers().size())));
         result = result.replaceText(b -> b.matchLiteral("%server_max%")
             .replacement(String.valueOf(Bukkit.getMaxPlayers())));
+
+        // --- Generated trace ID (reads from item PDC, empty if not present) ---
+        result = result.replaceText(b -> b.matchLiteral("%generated_id%")
+            .replacement(generatedId));
 
         return result;
     }

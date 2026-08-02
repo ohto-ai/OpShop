@@ -156,6 +156,13 @@ editor:
   refund-locked-desc: "&cPlaceholder 开启时禁止操作。"
   refund-locked-desc2: "&7关闭 Placeholder 后可启用。"
   placeholders-toggle: "&e变量替换: {state}"
+  generate-id-toggle: "&e生成追溯ID: {state}"
+  generate-id-locked: "&c出售: &4🔒 追溯ID开启时锁定"
+  generate-id-locked-desc: "&c追溯ID 开启时禁止出售。"
+  generate-id-locked-desc2: "&7关闭 追溯ID 后可启用出售。"
+  generate-id-desc-1: "&7开启后: 每次购买生成唯一追溯ID"
+  generate-id-desc-2: "&7ID写入物品数据，可溯源查询。"
+  generate-id-desc-3: "&7仅允许单次购买 (x1)，关闭批量购买。"
   refund-limit-toggle: "&e回购退额度: {state}"
   refund-desc-1: "&7开启后: 卖出此物品时"
   refund-desc-2: "&7恢复购买配额"
@@ -276,6 +283,7 @@ command:
   admin-logs: "&e/oshop admin logs &7— 在聊天中查看交易记录"
   admin-logs-gui: "&e/oshop admin logs gui &7— 在 GUI 中查看交易记录"
   admin-reload: "&e/oshop admin reload &7— 重新加载配置"
+  admin-trace: "&e/oshop admin trace [ID] &7— 查询手上物品的追溯ID，或查询指定ID的购买记录"
   open-shop-for: "&a已为 {player} 打开商店"
   open-sell-for: "&a已为 {player} 打开出售模式"
   gave-item: "&a已向 {player} 给予 {amount}x {id}"
@@ -289,6 +297,21 @@ command:
   console-no-add: "控制台无法添加物品，请使用编辑器。"
   console-no-currency-add: "控制台无法从手持物品添加货币。"
   console-no-log-gui: "控制台无法打开日志 GUI。"
+
+# --- Trace ---
+trace:
+  usage: "&c用法: /oshop admin trace [ID]"
+  no-item: "&c请将物品拿在主手上！"
+  no-trace-id: "&7该物品没有追溯ID。"
+  trace-id: "&a该物品的追溯ID: &e{id}"
+  not-found: "&c未找到追溯ID为 &e{id} &c的交易记录。"
+  header: "&e===== 追溯ID: {id} ====="
+  player: "&7购买者: &f{player}"
+  item: "&7物品: &f{item}"
+  quantity: "&7数量: &f{count}x"
+  price: "&7价格: &f{price} {currency}"
+  time: "&7时间: &f{time}"
+  console-no-trace: "控制台必须指定追溯ID: /oshop admin trace <id>"
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7花费 &f{price} {currency}"

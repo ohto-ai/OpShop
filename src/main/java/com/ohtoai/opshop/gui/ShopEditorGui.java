@@ -350,7 +350,7 @@ public class ShopEditorGui implements GuiHolder {
 
         inventory.setItem(28, GuiUtils.makeItem(
             editingItem.isBuyEnabled() ? Material.LIME_DYE : Material.GRAY_DYE, buyLabel, List.of(toggleHint)));
-        // Sell toggle: locked when placeholders are ON
+        // Sell toggle: locked when placeholders or generateUniqueId are ON
         if (editingItem.isApplyPlaceholders()) {
             inventory.setItem(29, GuiUtils.makeItem(Material.BARRIER,
                 m("editor.sell-locked", "&cSell: &4🔒 LOCKED"),
@@ -360,6 +360,17 @@ public class ShopEditorGui implements GuiHolder {
                 m("editor.refund-locked", "&cRefund Limit: &4🔒 LOCKED"),
                 List.of(m("editor.refund-locked-desc", "&cDisabled while Placeholders is ON."),
                     m("editor.refund-locked-desc2", "&7Turn off Placeholders to enable."))));
+        } else if (editingItem.isGenerateUniqueId()) {
+            inventory.setItem(29, GuiUtils.makeItem(Material.BARRIER,
+                m("editor.generate-id-locked", "&cSell: &4🔒 Trace ID LOCKED"),
+                List.of(m("editor.generate-id-locked-desc", "&cDisabled while Trace ID is ON."),
+                    m("editor.generate-id-locked-desc2", "&7Turn off Trace ID to enable Sell."))));
+            inventory.setItem(31, GuiUtils.makeItem(
+                editingItem.isRefundLimit() ? Material.LIME_DYE : Material.GRAY_DYE, refLabel,
+                List.of(m("editor.refund-desc-1", "&7When ON: selling this item back"),
+                    m("editor.refund-desc-2", "&7restores purchase quota"),
+                    m("editor.refund-desc-3", "&7(global total_sold & player limit)."),
+                    toggleHint)));
         } else {
             inventory.setItem(29, GuiUtils.makeItem(
                 editingItem.isSellEnabled() ? Material.LIME_DYE : Material.GRAY_DYE, sellLabel, List.of(toggleHint)));
@@ -372,6 +383,17 @@ public class ShopEditorGui implements GuiHolder {
         }
         inventory.setItem(30, GuiUtils.makeItem(
             editingItem.isApplyPlaceholders() ? Material.LIME_DYE : Material.GRAY_DYE, phLabel, List.of(toggleHint)));
+
+        // Generate Unique ID toggle (slot 32)
+        String genIdLabel = m("editor.generate-id-toggle", "&eTrace ID: {state}")
+            .replace("{state}", editingItem.isGenerateUniqueId() ? on : off);
+        inventory.setItem(32, GuiUtils.makeItem(
+            editingItem.isGenerateUniqueId() ? Material.LIME_DYE : Material.GRAY_DYE, genIdLabel,
+            List.of(
+                m("editor.generate-id-desc-1", "&7When ON: each purchase gets a unique trace ID"),
+                m("editor.generate-id-desc-2", "&7ID is written into item data for tracing."),
+                m("editor.generate-id-desc-3", "&7Only single purchase (x1), bulk buy disabled."),
+                toggleHint)));
 
         inventory.setItem(36, GuiUtils.makeItem(Material.CHEST,
             m("editor.get-item", "&6Get Item &7(Raw)"),
@@ -822,11 +844,14 @@ public class ShopEditorGui implements GuiHolder {
 
         // Slot 28 — Toggle Buy Enabled
         if (slot == 28) { editingItem.setBuyEnabled(!editingItem.isBuyEnabled()); build(); return; }
-        // Slot 29 — Toggle Sell Enabled (locked when placeholders ON)
+        // Slot 29 — Toggle Sell Enabled (locked when placeholders or generateUniqueId ON)
         if (slot == 29) {
             if (editingItem.isApplyPlaceholders()) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                     + m("editor.sell-locked-desc", "&cSell is locked while Placeholders is enabled.")));
+            } else if (editingItem.isGenerateUniqueId()) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + m("editor.generate-id-locked-desc", "&cSell is locked while Trace ID is enabled.")));
             } else {
                 editingItem.setSellEnabled(!editingItem.isSellEnabled()); build();
             }
@@ -848,6 +873,13 @@ public class ShopEditorGui implements GuiHolder {
                 editingItem.setRefundLimit(!editingItem.isRefundLimit()); build();
             }
             return;
+        }
+        // Slot 32 — Toggle Generate Unique ID (also disables sell when ON)
+        if (slot == 32) {
+            boolean on = !editingItem.isGenerateUniqueId();
+            editingItem.setGenerateUniqueId(on);
+            if (on) editingItem.setSellEnabled(false);
+            build(); return;
         }
 
         // Price slots: adjust by click

@@ -159,6 +159,13 @@ editor:
   refund-locked-desc: "&cDisabled while Placeholders is ON."
   refund-locked-desc2: "&7Turn off Placeholders to enable."
   placeholders-toggle: "&ePlaceholders: {state}"
+  generate-id-toggle: "&eTrace ID: {state}"
+  generate-id-locked: "&cSell: &4🔒 Trace ID LOCKED"
+  generate-id-locked-desc: "&cDisabled while Trace ID is ON."
+  generate-id-locked-desc2: "&7Turn off Trace ID to enable Sell."
+  generate-id-desc-1: "&7When ON: each purchase gets a unique trace ID"
+  generate-id-desc-2: "&7ID is written into item data for tracing."
+  generate-id-desc-3: "&7Only single purchase (x1), bulk buy disabled."
   refund-limit-toggle: "&eRefund Limit: {state}"
   refund-desc-1: "&7When ON: selling this item back"
   refund-desc-2: "&7restores purchase quota"
@@ -279,6 +286,7 @@ command:
   admin-logs: "&e/oshop admin logs &7— View transactions in chat"
   admin-logs-gui: "&e/oshop admin logs gui &7— View transactions in GUI"
   admin-reload: "&e/oshop admin reload &7— Reload config"
+  admin-trace: "&e/oshop admin trace [ID] &7— Query trace ID on held item, or lookup purchase by ID"
   open-shop-for: "&aOpened shop for {player}"
   open-sell-for: "&aOpened sell mode for {player}"
   gave-item: "&aGave {amount}x {id} to {player}"
@@ -292,6 +300,21 @@ command:
   console-no-add: "Console cannot add items. Use the editor."
   console-no-currency-add: "Console cannot add currencies from held items."
   console-no-log-gui: "Console cannot open the log GUI."
+
+# --- Trace ---
+trace:
+  usage: "&cUsage: /oshop admin trace [ID]"
+  no-item: "&cHold an item in your main hand!"
+  no-trace-id: "&7This item has no trace ID."
+  trace-id: "&aTrace ID of this item: &e{id}"
+  not-found: "&cNo transaction found with trace ID &e{id}&c."
+  header: "&e===== Trace ID: {id} ====="
+  player: "&7Buyer: &f{player}"
+  item: "&7Item: &f{item}"
+  quantity: "&7Quantity: &f{count}x"
+  price: "&7Price: &f{price} {currency}"
+  time: "&7Time: &f{time}"
+  console-no-trace: "Console must specify a trace ID: /oshop admin trace <id>"
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7for &f{price} {currency}"

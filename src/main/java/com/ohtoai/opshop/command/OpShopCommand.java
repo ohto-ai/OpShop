@@ -105,6 +105,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             case "currency" -> handleCurrency(sender, Arrays.copyOfRange(args, 1, args.length));
             case "resetlimit" -> handleResetLimit(sender, args);
             case "logs" -> handleLogs(sender, Arrays.copyOfRange(args, 1, args.length));
+            case "trace" -> handleTrace(sender, Arrays.copyOfRange(args, 1, args.length));
             default -> { sendAdminHelp(sender); yield true; }
         };
     }
@@ -522,6 +523,88 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
     }
 
+    // --- Trace ---
+
+    private boolean handleTrace(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("opshop.admin")) {
+            sender.sendMessage(plugin.getMessages().get("no-permission"));
+            return true;
+        }
+
+        // /oshop admin trace <id> — lookup by trace ID
+        if (args.length >= 1) {
+            long traceId;
+            try {
+                traceId = Long.parseLong(args[0]);
+            } catch (NumberFormatException e) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace [ID]")));
+                return true;
+            }
+            try {
+                TransactionRecord rec = plugin.getDatabaseManager().getTransactionRepository().queryById(traceId);
+                if (rec == null) {
+                    sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                        + plugin.getMessages().get("trace.not-found", "&cNo transaction found with trace ID &e{id}&c.")
+                            .replace("{id}", String.valueOf(traceId))));
+                    return true;
+                }
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.header",
+                    "&e===== Trace ID: {id} =====", "{id}", String.valueOf(traceId))));
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.player",
+                    "&7Buyer: &f{player}", "{player}", rec.getPlayerName())));
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.item",
+                    "&7Item: &f{item}", "{item}", rec.getShopItemId())));
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.quantity",
+                    "&7Quantity: &f{count}x", "{count}", String.valueOf(rec.getQuantity()))));
+                String curName = plugin.getCurrencyManager().getProvider(rec.getCurrencyId())
+                    .map(p -> p.getDisplayName()).orElse(rec.getCurrencyId());
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.price",
+                    "&7Price: &f{price} {currency}",
+                    "{price}", formatPrice(rec.getTotalPrice()),
+                    "{currency}", curName)));
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.time",
+                    "&7Time: &f{time}", "{time}", DATE_FORMAT.format(new Date(rec.getTimestamp())))));
+            } catch (Exception e) {
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&cError looking up trace ID!"));
+                plugin.getLogger().log(Level.WARNING, "Failed to lookup trace ID " + traceId, e);
+            }
+            return true;
+        }
+
+        // /oshop admin trace (no args) — read trace ID from held item
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("trace.console-no-trace",
+                    "Console must specify a trace ID: /oshop admin trace <id>")));
+            return true;
+        }
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (held.getType() == Material.AIR) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("trace.no-item", "&cHold an item in your main hand!")));
+            return true;
+        }
+        if (!held.hasItemMeta()) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("trace.no-trace-id", "&7This item has no trace ID.")));
+            return true;
+        }
+        Long storedId = held.getItemMeta().getPersistentDataContainer()
+            .get(com.ohtoai.opshop.shop.TransactionProcessor.TRACE_ID_KEY,
+                org.bukkit.persistence.PersistentDataType.LONG);
+        if (storedId == null) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("trace.no-trace-id", "&7This item has no trace ID.")));
+            return true;
+        }
+        player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+            + plugin.getMessages().get("trace.trace-id", "&aTrace ID of this item: &e{id}",
+                "{id}", String.valueOf(storedId))));
+        return true;
+    }
+
     // --- Help ---
 
     private void sendHelp(CommandSender sender) {
@@ -549,6 +632,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(m.get("command.admin-logs-gui", "&e/oshop admin logs gui &7— View transactions in GUI"));
         sender.sendMessage(m.get("command.admin-reload", "&e/oshop admin reload &7— Reload config"));
         sender.sendMessage(m.get("command.admin-resetlimit", "&e/oshop admin resetlimit <player> <id> &7— Reset player purchase limit"));
+        sender.sendMessage(m.get("command.admin-trace", "&e/oshop admin trace [ID] &7— Query trace ID on held item, or lookup purchase by ID"));
     }
 
     // --- Tab Complete ---
@@ -562,7 +646,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         if (!args[0].equalsIgnoreCase("admin")) return List.of();
 
         if (args.length == 2) {
-            return filter(List.of("editor", "add", "delete", "give", "reload", "currency", "logs", "resetlimit"), args[1]);
+            return filter(List.of("editor", "add", "delete", "give", "reload", "currency", "logs", "resetlimit", "trace"), args[1]);
         }
 
         return switch (args[1].toLowerCase()) {

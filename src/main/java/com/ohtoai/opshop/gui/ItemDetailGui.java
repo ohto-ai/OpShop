@@ -123,14 +123,20 @@ public class ItemDetailGui implements GuiHolder {
             PriceConfig pc = buyPrices.stream()
                 .filter(p -> p.getCurrencyId().equals(selectedCurrency)).findFirst().orElse(null);
             if (pc != null && pc.getBuyPrice() > 0) {
-                buildBuyButton(SLOT_BUY_64, 64, pc.getBuyPrice());
-                buildBuyButton(SLOT_BUY_8, 8, pc.getBuyPrice());
-                buildBuyButton(SLOT_BUY_1, 1, pc.getBuyPrice());
+                if (shopItem.isGenerateUniqueId()) {
+                    // Trace ID mode: only x1 purchase, no bulk buy
+                    buildBuyButton(SLOT_BUY_1, 1, pc.getBuyPrice());
+                } else {
+                    buildBuyButton(SLOT_BUY_64, 64, pc.getBuyPrice());
+                    buildBuyButton(SLOT_BUY_8, 8, pc.getBuyPrice());
+                    buildBuyButton(SLOT_BUY_1, 1, pc.getBuyPrice());
+                }
             }
         }
 
-        // --- Sell buttons --- (hidden for placeholder items)
-        if (selectedCurrency != null && shopItem.isSellEnabled() && !shopItem.isApplyPlaceholders()) {
+        // --- Sell buttons --- (hidden for placeholder items and trace ID items)
+        if (selectedCurrency != null && shopItem.isSellEnabled() && !shopItem.isApplyPlaceholders()
+            && !shopItem.isGenerateUniqueId()) {
             PriceConfig pc = sellPrices.stream()
                 .filter(p -> p.getCurrencyId().equals(selectedCurrency)).findFirst().orElse(null);
             if (pc != null && pc.getSellPrice() > 0) {
@@ -301,7 +307,17 @@ public class ItemDetailGui implements GuiHolder {
             // SUCCESS: TransactionProcessor already handles message + sound
             case SUCCESS -> {}
             case INSUFFICIENT_FUNDS -> {
-                player.sendMessage(prefix + plugin.getMessages().get("not-enough-currency"));
+                var provider = currencyManager.getProvider(selectedCurrency);
+                double balance = provider.map(p -> p.getBalance(player)).orElse(0.0);
+                List<PriceConfig> buyPrices = shopManager.getBuyPrices(shopItem);
+                PriceConfig pc = buyPrices.stream()
+                    .filter(p -> p.getCurrencyId().equals(selectedCurrency)).findFirst().orElse(null);
+                double needed = pc != null ? pc.getBuyPrice() : 0;
+                String msg = plugin.getMessages().format("not-enough-currency",
+                    "{currency}", provider.map(CurrencyProvider::getDisplayName).orElse(selectedCurrency),
+                    "{amount}", formatPrice(needed),
+                    "{balance}", formatPrice(balance));
+                player.sendMessage(prefix + msg);
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
             }
             case INSUFFICIENT_ITEMS ->
