@@ -136,7 +136,7 @@ public class CustomCurrencyListGui implements GuiHolder {
         ItemStack item;
         var provider = currencyManager.getProvider(id);
         if (provider.isPresent() && provider.get().getDisplayItem() != null) {
-            item = provider.get().getDisplayItem().clone();
+            item = GuiUtils.prepareCurrencyIcon(provider.get().getDisplayItem());
         } else {
             // Fallback: build from currency definition
             Material mat = Material.NETHER_STAR;

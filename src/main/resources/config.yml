@@ -41,5 +41,9 @@ gui:
   title: "&8OpShop"
   filler-material: BLACK_STAINED_GLASS_PANE
 
+# New items: if false, buy & sell are disabled by default (admin must toggle them on).
+# This prevents players from buying items at the default placeholder price.
+default-buy-sell-enabled: false
+
 locale: zh_CN
 debug: false

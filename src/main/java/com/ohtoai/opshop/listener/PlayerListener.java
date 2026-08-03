@@ -27,8 +27,9 @@ public class PlayerListener implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        // Clean up cooldown cache for offline players (optional, kept for memory efficiency)
-        // Cooldowns are stored in memory only; they reset on server restart.
-        // Could persist cooldowns to database if needed long-term.
+        // Clean up cooldown cache for offline players (memory efficiency)
+        plugin.getShopManager().clearCooldowns(event.getPlayer().getUniqueId());
+        // Clean up editor instance for this player
+        com.ohtoai.opshop.gui.ShopEditorGui.removeActiveInstance(event.getPlayer().getUniqueId());
     }
 }

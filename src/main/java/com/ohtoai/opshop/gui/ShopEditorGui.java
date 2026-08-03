@@ -18,6 +18,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
@@ -85,27 +87,34 @@ public class ShopEditorGui implements GuiHolder {
     // Construction & navigation
     // -------------------------------------------------------------------------
 
-    private static ShopEditorGui activeInstance;
+    /** Per-player active editor instances (supports multiple admins). */
+    private static final ConcurrentHashMap<UUID, ShopEditorGui> activeEditors = new ConcurrentHashMap<>();
 
     public ShopEditorGui(OpShopPlugin plugin, ShopManager shopManager, CurrencyManager currencyManager) {
         this.plugin = plugin;
         this.shopManager = shopManager;
         this.currencyManager = currencyManager;
-        // Clear previous instance to allow GC before overwriting
-        if (activeInstance != null && activeInstance != this) {
-            activeInstance.clearState();
-        }
-        activeInstance = this;
     }
 
-    /** Release references to allow garbage collection. */
-    private void clearState() {
-        this.currentViewer = null;
-        this.editingItem = null;
-        this.inventory = null;
+    /** Get the active editor for a specific player, or null. */
+    public static ShopEditorGui getActiveInstance(Player player) {
+        return activeEditors.get(player.getUniqueId());
     }
 
-    public static ShopEditorGui getActiveInstance() { return activeInstance; }
+    /** Register this editor as active for the given player. */
+    private void registerActive(Player player) {
+        activeEditors.put(player.getUniqueId(), this);
+    }
+
+    /** Unregister this editor for the given player. */
+    private void unregisterActive(Player player) {
+        activeEditors.remove(player.getUniqueId(), this);
+    }
+
+    /** Remove any active editor for the given player UUID (called on quit). */
+    public static void removeActiveInstance(UUID playerUuid) {
+        activeEditors.remove(playerUuid);
+    }
 
     /** Open the main paginated item list. */
     public void open(Player player) {
@@ -114,6 +123,7 @@ public class ShopEditorGui implements GuiHolder {
 
     /** Open the editor at a specific page. */
     public void open(Player player, int page) {
+        registerActive(player);
         this.currentViewer = player;
         this.editMode = false;
         this.editingItem = null;
@@ -128,6 +138,7 @@ public class ShopEditorGui implements GuiHolder {
 
     /** Open the editor scoped to a guild. Only shows items for that guild. */
     public void openForGuild(Player player, int guildId, String guildName, String guildTag) {
+        registerActive(player);
         this.currentViewer = player;
         this.editMode = false;
         this.editingItem = null;
@@ -144,6 +155,7 @@ public class ShopEditorGui implements GuiHolder {
 
     /** Open the edit view for a specific item. */
     public void openEdit(Player player, ShopItem item) {
+        registerActive(player);
         this.currentViewer = player;
         this.editMode = true;
         this.editingItem = item;
@@ -519,7 +531,8 @@ public class ShopEditorGui implements GuiHolder {
         inventory.setItem(50, GuiUtils.makeItem(Material.RED_WOOL,
             deleteConfirmPending ? m("editor.delete-confirm", "&c&lCONFIRM DELETE") : m("editor.delete", "&c✖ Delete"),
             List.of(deleteConfirmPending ? m("editor.delete-confirm-desc", "&7Click again to confirm") : m("editor.delete-desc", "&7Click to delete"))));
-        inventory.setItem(53, GuiUtils.makeItem(Material.ARROW, m("editor.back-to-list", "&6← Back to List"), List.of()));
+        inventory.setItem(53, GuiUtils.makeItem(Material.ARROW, m("editor.back-to-list", "&6← Back to List"),
+            List.of(m("editor.back-to-list-desc", "&7Return to item list"))));
     }
 
     // ---- Currency icon builder (single icon with price lore) ----
@@ -540,7 +553,7 @@ public class ShopEditorGui implements GuiHolder {
             displayName = key;
             var provider = currencyManager.getProvider(key);
             if (provider.isPresent() && provider.get().getDisplayItem() != null) {
-                icon = provider.get().getDisplayItem().clone();
+                icon = GuiUtils.prepareCurrencyIcon(provider.get().getDisplayItem());
             } else {
                 var def = currencyManager.getDefinition(key);
                 Material mat = fallbackMat != null ? fallbackMat : Material.NETHER_STAR;
@@ -588,7 +601,7 @@ public class ShopEditorGui implements GuiHolder {
         // Try provider's display item first
         var provider = currencyManager.getProvider(cid);
         if (provider.isPresent() && provider.get().getDisplayItem() != null) {
-            icon = provider.get().getDisplayItem().clone();
+            icon = GuiUtils.prepareCurrencyIcon(provider.get().getDisplayItem());
         } else {
             Material mat = Material.NETHER_STAR;
             if (def.customMaterial() != null && !def.customMaterial().isEmpty()) {
@@ -667,7 +680,7 @@ public class ShopEditorGui implements GuiHolder {
         if (!isGrid && event.getCursor() != null && event.getCursor().getType() != Material.AIR) {
             event.setCancelled(true);
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&7Drop items on the grid area (slots 0-44) to add them."));
+                + m("editor.drop-hint-grid", "&7Drop items on the grid area (slots 0-44) to add them.")));
             return;
         }
 
@@ -789,13 +802,14 @@ public class ShopEditorGui implements GuiHolder {
         int n = 1;
         while (shopManager.getItem(id).isPresent()) id = baseId + "_" + (++n);
 
+        boolean buySellEnabled = plugin.getPluginConfig().isDefaultBuySellEnabled();
         ShopItem newItem = new ShopItem(id);
         newItem.setPage(page);
         newItem.setSlot(slot);
         newItem.setDisplayItem(ItemSerializer.serialize(cursor));
         newItem.setProductItem(ItemSerializer.serialize(cursor));
-        newItem.setBuyEnabled(true);
-        newItem.setSellEnabled(true);
+        newItem.setBuyEnabled(buySellEnabled);
+        newItem.setSellEnabled(buySellEnabled);
         currencyManager.applyGlobalDefaults(newItem);
         if (guildEditorId != null) {
             newItem.getAllowedGuildIds().add(guildEditorId);
@@ -873,7 +887,7 @@ public class ShopEditorGui implements GuiHolder {
                 else sellVal = buy;
             } catch (NumberFormatException e) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&cInvalid number format! Use: buy sell (e.g. 100 50)"));
+                    + m("editor.invalid-price-format", "&cInvalid number format! Use: buy sell (e.g. 100 50)")));
                 scheduleEditorReopen(player);
                 return;
             }
@@ -882,17 +896,20 @@ public class ShopEditorGui implements GuiHolder {
             if (currencyId != null) {
                 editingItem.setCustomCurrencyPrice(currencyId, buy, sellVal);
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&aSet " + currencyId + ": Buy=" + formatPrice(buy) + " Sell=" + formatPrice(sellVal)));
+                    + m("editor.price-set-currency", "&aSet {currency}: Buy={buy} Sell={sell}",
+                        "{currency}", currencyId, "{buy}", formatPrice(buy), "{sell}", formatPrice(sellVal))));
             } else if (slot == 10) {
                 editingItem.setVaultBuyPrice(buy);
                 editingItem.setVaultSellPrice(sellVal);
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&aVault: Buy=" + formatPrice(buy) + " Sell=" + formatPrice(sellVal)));
+                    + m("editor.price-set-vault", "&aVault: Buy={buy} Sell={sell}",
+                        "{buy}", formatPrice(buy), "{sell}", formatPrice(sellVal))));
             } else if (slot == 16) {
                 editingItem.setPpBuyPrice(buy);
                 editingItem.setPpSellPrice(sellVal);
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&aPoints: Buy=" + formatPrice(buy) + " Sell=" + formatPrice(sellVal)));
+                    + m("editor.price-set-points", "&aPoints: Buy={buy} Sell={sell}",
+                        "{buy}", formatPrice(buy), "{sell}", formatPrice(sellVal))));
             }
         } else {
             double value;
@@ -900,7 +917,7 @@ public class ShopEditorGui implements GuiHolder {
                 value = Double.parseDouble(input);
             } catch (NumberFormatException e) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&cInvalid number! Type a price like: 100.5"));
+                    + m("editor.invalid-number", "&cInvalid number! Type a price like: 100.5")));
                 scheduleEditorReopen(player);
                 return;
             }
@@ -919,7 +936,7 @@ public class ShopEditorGui implements GuiHolder {
                 else editingItem.setCustomCurrencyPrice(currencyId, value, curSell);
             }
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&aPrice set to: &f" + formatPrice(value)));
+                + m("editor.price-set", "&aPrice set to: &f{value}", "{value}", formatPrice(value))));
         }
 
         scheduleEditorReopen(player);
@@ -959,10 +976,11 @@ public class ShopEditorGui implements GuiHolder {
 
         // Build the anvil input item with current price as placeholder text
         List<String> anvilLore = new ArrayList<>(both
-            ? List.of("&7Format: buy sell", "&7e.g. 100 50")
-            : List.of("&7Type new price"));
+            ? List.of(m("editor.anvil-format-hint", "&7Format: buy sell"),
+                m("editor.anvil-eg-hint", "&7e.g. 100 50"))
+            : List.of(m("editor.anvil-type-price", "&7Type new price")));
         anvilLore.add("&8---");
-        anvilLore.add("&7Press &oESC &7to cancel");
+        anvilLore.add(m("editor.anvil-esc-hint", "&7Press &oESC &7to cancel"));
         ItemStack inputItem = GuiUtils.makeItem(Material.PAPER, currentValue, anvilLore);
         org.bukkit.inventory.InventoryView anvilView = player.openAnvil(null, true);
         if (anvilView != null) {
@@ -1019,12 +1037,13 @@ public class ShopEditorGui implements GuiHolder {
         }
 
         // Create item
+        boolean buySellEnabled2 = plugin.getPluginConfig().isDefaultBuySellEnabled();
         ShopItem newItem = new ShopItem(id);
         newItem.setSlot(findNextUnusedSlot(page));
         newItem.setDisplayItem(ItemSerializer.serialize(pendingCursorItem));
         newItem.setProductItem(ItemSerializer.serialize(pendingCursorItem));
-        newItem.setBuyEnabled(true);
-        newItem.setSellEnabled(true);
+        newItem.setBuyEnabled(buySellEnabled2);
+        newItem.setSellEnabled(buySellEnabled2);
         currencyManager.applyGlobalDefaults(newItem);
         if (guildEditorId != null) {
             newItem.getAllowedGuildIds().add(guildEditorId);
@@ -1037,13 +1056,13 @@ public class ShopEditorGui implements GuiHolder {
                 shopManager.saveItemGuilds(newItem.getId(), newItem.getAllowedGuildIds());
             }
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&aCreated: &e" + id));
+                + m("editor.item-created-anvil", "&aCreated: &e{id}", "{id}", id)));
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
             pendingCursorItem = null;
             enterEditMode(player, newItem);
         } catch (java.sql.SQLException e) {
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&cFailed to create item!"));
+                + m("editor.create-failed", "&cFailed to create item!")));
             plugin.getLogger().log(java.util.logging.Level.WARNING, "Failed to create from anvil", e);
             pendingCursorItem = null;
             open(player);
@@ -1067,7 +1086,7 @@ public class ShopEditorGui implements GuiHolder {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held == null || held.getType() == Material.AIR) {
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cHold an item in your main hand first!"));
+                plugin.getMessages().getPrefix() + m("editor.hold-item-first", "&cHold an item in your main hand first!")));
             return;
         }
 
@@ -1082,13 +1101,14 @@ public class ShopEditorGui implements GuiHolder {
         // Find the next unused slot index
         int nextSlot = findNextUnusedSlot(page);
 
+        boolean buySellEnabled3 = plugin.getPluginConfig().isDefaultBuySellEnabled();
         ShopItem newItem = new ShopItem(itemId);
         newItem.setPage(page);
         newItem.setSlot(nextSlot);
         newItem.setDisplayItem(ItemSerializer.serialize(held));
         newItem.setProductItem(ItemSerializer.serialize(held));
-        newItem.setBuyEnabled(true);
-        newItem.setSellEnabled(true);
+        newItem.setBuyEnabled(buySellEnabled3);
+        newItem.setSellEnabled(buySellEnabled3);
         currencyManager.applyGlobalDefaults(newItem);
         if (guildEditorId != null) {
             newItem.getAllowedGuildIds().add(guildEditorId);
@@ -1101,11 +1121,11 @@ public class ShopEditorGui implements GuiHolder {
                 shopManager.saveItemGuilds(newItem.getId(), newItem.getAllowedGuildIds());
             }
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&aCreated new item: &e" + itemId));
+                plugin.getMessages().getPrefix() + m("editor.item-created-from-hand", "&aCreated new item: &e{id}", "{id}", itemId)));
             enterEditMode(player, newItem);
         } catch (SQLException e) {
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cFailed to create item!"));
+                plugin.getMessages().getPrefix() + m("editor.create-failed", "&cFailed to create item!")));
             plugin.getLogger().log(Level.WARNING, "Failed to create shop item from hand", e);
         }
     }
@@ -1122,13 +1142,14 @@ public class ShopEditorGui implements GuiHolder {
 
         int nextSlot = findNextUnusedSlot(page);
 
+        boolean buySellEnabled4 = plugin.getPluginConfig().isDefaultBuySellEnabled();
         ShopItem newItem = new ShopItem(itemId);
         newItem.setPage(page);
         newItem.setSlot(nextSlot);
         newItem.setDisplayItem(ItemSerializer.serialize(cursorItem));
         newItem.setProductItem(ItemSerializer.serialize(cursorItem));
-        newItem.setBuyEnabled(true);
-        newItem.setSellEnabled(true);
+        newItem.setBuyEnabled(buySellEnabled4);
+        newItem.setSellEnabled(buySellEnabled4);
         currencyManager.applyGlobalDefaults(newItem);
         if (guildEditorId != null) {
             newItem.getAllowedGuildIds().add(guildEditorId);
@@ -1141,12 +1162,12 @@ public class ShopEditorGui implements GuiHolder {
                 shopManager.saveItemGuilds(newItem.getId(), newItem.getAllowedGuildIds());
             }
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&aCreated new item: &e" + itemId));
+                plugin.getMessages().getPrefix() + m("editor.item-created-from-hand", "&aCreated new item: &e{id}", "{id}", itemId)));
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
             enterEditMode(player, newItem);
         } catch (SQLException e) {
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cFailed to create item!"));
+                plugin.getMessages().getPrefix() + m("editor.create-failed", "&cFailed to create item!")));
             plugin.getLogger().log(Level.WARNING, "Failed to create shop item from cursor", e);
         }
     }
@@ -1172,7 +1193,7 @@ public class ShopEditorGui implements GuiHolder {
                 player.setItemOnCursor(null);
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&aItem updated: &e" + editingItemId));
+                    + m("editor.item-updated", "&aItem updated: &e{id}", "{id}", editingItemId)));
                 build();
             }
             return;
@@ -1227,7 +1248,16 @@ public class ShopEditorGui implements GuiHolder {
         if (slot == 42) { giveItemToPlayer(player, event.isShiftClick()); return; }
         if (slot == 43) {
             player.closeInventory();
-            new com.ohtoai.opshop.gui.TransactionLogGui(plugin, editingItemId).open(player);
+            // Pass back callback → reopen edit view for this item
+            String itemId = editingItemId;
+            new com.ohtoai.opshop.gui.TransactionLogGui(plugin, itemId, () -> {
+                var item = shopManager.getItem(itemId);
+                item.ifPresentOrElse(
+                    shopItem -> openEdit(player, shopItem),
+                    () -> player.sendMessage(Messages.colorize(
+                        plugin.getMessages().getPrefix() + m("editor.item-no-longer-exists", "&cItem no longer exists.")))
+                );
+            }).open(player);
             return;
         }
 
@@ -1393,10 +1423,13 @@ public class ShopEditorGui implements GuiHolder {
         build();
     }
 
-    /** Back to guild admin list from guild editor edit view (slot 53). */
+    /** Exit edit mode back to the guild-scoped list view (one level up). */
     private void backToGuildList(Player player) {
-        player.closeInventory();
-        new com.ohtoai.opshop.gui.GuildAdminListGui(plugin).open(player);
+        this.editMode = false;
+        this.editingItem = null;
+        this.editingItemId = null;
+        this.deleteConfirmPending = false;
+        build();
     }
 
     private void saveItem(Player player) {
@@ -1404,11 +1437,11 @@ public class ShopEditorGui implements GuiHolder {
             shopManager.saveItem(editingItem);
             deleteConfirmPending = false;
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&aItem saved: &e" + editingItemId));
+                plugin.getMessages().getPrefix() + m("editor.item-saved", "&aItem saved: &e{id}", "{id}", editingItemId)));
             build();
         } catch (SQLException e) {
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cFailed to save item!"));
+                plugin.getMessages().getPrefix() + m("editor.save-failed", "&cFailed to save item!")));
             plugin.getLogger().log(Level.WARNING, "Failed to save item: " + editingItemId, e);
         }
     }
@@ -1418,18 +1451,18 @@ public class ShopEditorGui implements GuiHolder {
             deleteConfirmPending = true;
             build();
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cClick the red wool again to confirm deletion."));
+                plugin.getMessages().getPrefix() + m("editor.delete-confirm-hint", "&cClick the red wool again to confirm deletion.")));
             return;
         }
 
         try {
             shopManager.deleteItem(editingItemId);
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cItem deleted: &e" + editingItemId));
+                plugin.getMessages().getPrefix() + m("editor.item-deleted-msg", "&cItem deleted: &e{id}", "{id}", editingItemId)));
             exitEditMode();
         } catch (SQLException e) {
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cFailed to delete item!"));
+                plugin.getMessages().getPrefix() + m("editor.delete-failed-msg", "&cFailed to delete item!")));
             plugin.getLogger().log(Level.WARNING, "Failed to delete item: " + editingItemId, e);
             deleteConfirmPending = false;
             build();
@@ -1466,13 +1499,13 @@ public class ShopEditorGui implements GuiHolder {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held == null || held.getType() == Material.AIR) {
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cHold an item in your main hand first!"));
+                plugin.getMessages().getPrefix() + m("editor.hold-item-first", "&cHold an item in your main hand first!")));
             return;
         }
         editingItem.setDisplayItem(ItemSerializer.serialize(held));
         deleteConfirmPending = false;
         player.sendMessage(Messages.colorize(
-            plugin.getMessages().getPrefix() + "&aDisplay item set to: &e" + held.getType().name()));
+            plugin.getMessages().getPrefix() + m("editor.display-item-set", "&aDisplay item set to: &e{name}", "{name}", held.getType().name())));
         build();
     }
 
@@ -1480,13 +1513,13 @@ public class ShopEditorGui implements GuiHolder {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held == null || held.getType() == Material.AIR) {
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&cHold an item in your main hand first!"));
+                plugin.getMessages().getPrefix() + m("editor.hold-item-first", "&cHold an item in your main hand first!")));
             return;
         }
         editingItem.setProductItem(ItemSerializer.serialize(held));
         deleteConfirmPending = false;
         player.sendMessage(Messages.colorize(
-            plugin.getMessages().getPrefix() + "&aProduct item set to: &e" + held.getType().name()));
+            plugin.getMessages().getPrefix() + m("editor.product-item-set", "&aProduct item set to: &e{name}", "{name}", held.getType().name())));
         build();
     }
 
@@ -1505,9 +1538,11 @@ public class ShopEditorGui implements GuiHolder {
         for (ItemStack drop : leftover.values()) {
             player.getWorld().dropItemNaturally(player.getLocation(), drop);
         }
+        String flags = withPlaceholders
+            ? m("editor.with-placeholders", " &7(with placeholders)")
+            : m("editor.raw", " &7(raw)");
         player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-            + "&aGave 1x &e" + editingItemId
-            + (withPlaceholders ? " &7(with placeholders)" : " &7(raw)")));
+            + m("editor.gave-item", "&aGave 1x &e{id}{flags}", "{id}", editingItemId, "{flags}", flags)));
     }
 
     /** Extract plain text from an Adventure Component, stripping all formatting. */

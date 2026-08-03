@@ -24,6 +24,7 @@ public class TransactionLogGui implements GuiHolder {
 
     private static final int ROWS = 6;
     private static final int ITEMS_PER_PAGE = 45;
+    private static final int MAX_LOAD = 1000;
     private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm");
 
     private final OpShopPlugin plugin;
@@ -31,46 +32,58 @@ public class TransactionLogGui implements GuiHolder {
     private int page;
     private final List<TransactionRecord> records = new ArrayList<>();
     private final int totalRecords;
+    private final boolean wasTruncated;
     private final String filterItemId;
     private final UUID filterPlayerUuid;
     private final String filterPlayerName;
+    private final Runnable onBack; // null = no back button
     private String m(String k, String e, String... r) { return plugin.getMessages().get(k, e, r); }
 
     public TransactionLogGui(OpShopPlugin plugin) {
-        this(plugin, null, null, null);
+        this(plugin, null, null, null, null);
     }
 
     public TransactionLogGui(OpShopPlugin plugin, String filterItemId) {
-        this(plugin, filterItemId, null, null);
+        this(plugin, filterItemId, null, null, null);
+    }
+
+    public TransactionLogGui(OpShopPlugin plugin, String filterItemId, Runnable onBack) {
+        this(plugin, filterItemId, null, null, onBack);
     }
 
     public TransactionLogGui(OpShopPlugin plugin, UUID playerUuid, String playerName) {
-        this(plugin, null, playerUuid, playerName);
+        this(plugin, null, playerUuid, playerName, null);
     }
 
-    private TransactionLogGui(OpShopPlugin plugin, String filterItemId, UUID filterPlayerUuid, String filterPlayerName) {
+    private TransactionLogGui(OpShopPlugin plugin, String filterItemId, UUID filterPlayerUuid, String filterPlayerName, Runnable onBack) {
         this.plugin = plugin;
         this.filterItemId = filterItemId;
         this.filterPlayerUuid = filterPlayerUuid;
         this.filterPlayerName = filterPlayerName;
+        this.onBack = onBack;
         // Load records (filtered or all)
         int count = 0;
+        boolean truncated = false;
         try {
             TransactionRepository repo = plugin.getDatabaseManager().getTransactionRepository();
             if (filterItemId != null) {
-                this.records.addAll(repo.queryByItem(filterItemId, 0, 500));
                 count = (int) repo.countByItem(filterItemId);
+                this.records.addAll(repo.queryByItem(filterItemId, 0, Math.min(count, MAX_LOAD)));
+                truncated = count > MAX_LOAD;
             } else if (filterPlayerUuid != null) {
-                this.records.addAll(repo.queryByPlayer(filterPlayerUuid, 0, 500));
                 count = (int) repo.countByPlayer(filterPlayerUuid);
+                this.records.addAll(repo.queryByPlayer(filterPlayerUuid, 0, Math.min(count, MAX_LOAD)));
+                truncated = count > MAX_LOAD;
             } else {
-                this.records.addAll(repo.queryRecent(0, 500));
                 count = (int) repo.count();
+                this.records.addAll(repo.queryRecent(0, Math.min(count, MAX_LOAD)));
+                truncated = count > MAX_LOAD;
             }
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to load transaction logs: " + e.getMessage());
         }
         this.totalRecords = count;
+        this.wasTruncated = truncated;
     }
 
     public void open(Player player) {
@@ -104,7 +117,7 @@ public class TransactionLogGui implements GuiHolder {
             SkullMeta meta = (SkullMeta) skull.getItemMeta();
             OfflinePlayer off = Bukkit.getOfflinePlayer(rec.getPlayerUuid());
             meta.setOwningPlayer(off);
-            meta.displayName(GuiUtils.toComponent(Messages.colorize("&e" + rec.getPlayerName())));
+            meta.displayName(GuiUtils.toComponent(Messages.colorize("&f" + rec.getPlayerName())));
 
             String typeLabel = rec.getType().name().equals("BUY")
                 ? m("gui.log.type-purchase", "&aPurchase") : m("gui.log.type-sale", "&6Sale");
@@ -129,6 +142,11 @@ public class TransactionLogGui implements GuiHolder {
             List.of(m("gui.log.total", "&7{count} total transactions", "{count}", String.valueOf(totalRecords)))));
         if (page < totalPages - 1) inventory.setItem(53, GuiUtils.makeItem(Material.ARROW,
             m("gui.log.next-page", "&aNext →"), List.of()));
+        if (onBack != null) {
+            inventory.setItem(48, GuiUtils.makeItem(Material.ARROW,
+                m("gui.back", "&6← Back"),
+                List.of(m("gui.back-desc", "&7Return to item editor"))));
+        }
         inventory.setItem(52, GuiUtils.makeItem(Material.BARRIER,
             m("gui.close", "&cClose"), List.of()));
     }
@@ -141,6 +159,7 @@ public class TransactionLogGui implements GuiHolder {
 
         if (slot == 45 && page > 0) { page--; buildInventory(); }
         else if (slot == 53 && page < totalPages - 1) { page++; buildInventory(); }
+        else if (slot == 48 && onBack != null) { player.closeInventory(); onBack.run(); return; }
         else if (slot == 52) { player.closeInventory(); return; }
         if (player.getOpenInventory().getTopInventory().getHolder() == this) {
             player.openInventory(inventory);

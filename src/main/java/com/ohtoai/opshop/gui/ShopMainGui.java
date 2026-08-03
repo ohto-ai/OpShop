@@ -3,7 +3,6 @@ package com.ohtoai.opshop.gui;
 import com.ohtoai.opshop.OpShopPlugin;
 import com.ohtoai.opshop.config.Messages;
 import com.ohtoai.opshop.currency.CurrencyManager;
-import com.ohtoai.opshop.currency.CurrencyProvider;
 import com.ohtoai.opshop.item.ItemSerializer;
 import com.ohtoai.opshop.shop.PriceConfig;
 import com.ohtoai.opshop.shop.ShopItem;
@@ -98,21 +97,29 @@ public class ShopMainGui implements GuiHolder {
         player.openInventory(inventory);
     }
 
+    /**
+     * Get shop items filtered by the player's current guild context.
+     * Global view: only non-guild-restricted items.
+     * Guild view: only items restricted to this guild.
+     */
+    private List<ShopItem> getFilteredItems(Player player) {
+        Integer gId = guildIdFor(player);
+        if (gId != null) {
+            return shopManager.getAllItems().stream()
+                .filter(i -> i.isGuildRestricted() && i.getAllowedGuildIds().contains(gId))
+                .toList();
+        } else {
+            return shopManager.getAllItems().stream()
+                .filter(i -> !i.isGuildRestricted())
+                .toList();
+        }
+    }
+
     private void buildItemView(Material fillerMaterial, Player player) {
         GuiUtils.fill(inventory, fillerMaterial);
 
         // Filter items: normal shop excludes guild items; guild view only shows this guild's items
-        List<ShopItem> allItems = shopManager.getAllItems();
-        Integer gId = guildIdFor(player);
-        if (gId != null) {
-            allItems = allItems.stream()
-                .filter(i -> i.isGuildRestricted() && i.getAllowedGuildIds().contains(gId))
-                .toList();
-        } else {
-            allItems = allItems.stream()
-                .filter(i -> !i.isGuildRestricted())
-                .toList();
-        }
+        List<ShopItem> allItems = getFilteredItems(player);
         // Calculate pagination based on the filtered list
         int totalItemCount = allItems.size();
         int totalPages = totalItemCount == 0 ? 1
@@ -177,16 +184,14 @@ public class ShopMainGui implements GuiHolder {
         if (!buyPrices.isEmpty()) {
             lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.buy-prices", "&eBuy prices:"))));
             for (PriceConfig pc : buyPrices) {
-                var providerOpt = currencyManager.getProvider(pc.getCurrencyId());
-                String currencyDisplay = providerOpt.map(CurrencyProvider::getDisplayName).orElse(pc.getCurrencyId());
+                String currencyDisplay = currencyManager.getDisplayName(pc.getCurrencyId());
                 lore.add(GuiUtils.toComponent(Messages.colorize("&7  &a" + formatPrice(pc.getBuyPrice()) + " " + currencyDisplay)));
             }
         }
         if (!sellPrices.isEmpty() && !item.isApplyPlaceholders()) {
             lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.sell-prices", "&eSell prices:"))));
             for (PriceConfig pc : sellPrices) {
-                var providerOpt = currencyManager.getProvider(pc.getCurrencyId());
-                String currencyDisplay = providerOpt.map(CurrencyProvider::getDisplayName).orElse(pc.getCurrencyId());
+                String currencyDisplay = currencyManager.getDisplayName(pc.getCurrencyId());
                 lore.add(GuiUtils.toComponent(Messages.colorize("&7  &6" + formatPrice(pc.getSellPrice()) + " " + currencyDisplay)));
             }
         }
@@ -251,7 +256,9 @@ public class ShopMainGui implements GuiHolder {
         }
 
         if (slot == SLOT_NEXT) {
-            int totalPages = shopManager.getItemCount() == 0 ? 1 : shopManager.getMaxNonEmptyPage() + 1;
+            List<ShopItem> filtered = getFilteredItems(player);
+            int totalPages = filtered.isEmpty() ? 1
+                : filtered.stream().mapToInt(ShopItem::getPage).max().orElse(0) + 1;
             if (currentPage < totalPages - 1) {
                 currentPage++;
                 buildAndShow(player);
@@ -271,11 +278,14 @@ public class ShopMainGui implements GuiHolder {
     }
 
     private void handleItemClick(Player player, int slot) {
-        // Find item at this slot on the current page
-        List<ShopItem> pageItems = shopManager.getItemsOnPage(currentPage);
-        ShopItem item = pageItems.stream()
-            .filter(i -> i.getSlot() == slot).findFirst().orElse(null);
-        if (item == null) return;
+        // Find item at this slot on the current page — MUST use same
+        // guild/global filtering as buildItemView, otherwise clicking a
+        // slot can resolve to an item from the wrong shop.
+        List<ShopItem> pageItems = getFilteredItems(player).stream()
+            .filter(i -> i.getPage() == currentPage && i.getSlot() == slot)
+            .toList();
+        if (pageItems.isEmpty()) return;
+        ShopItem item = pageItems.get(0);
 
         if (!item.isBuyEnabled() && !item.isSellEnabled()) {
             player.sendMessage(plugin.getMessages().getPrefix()

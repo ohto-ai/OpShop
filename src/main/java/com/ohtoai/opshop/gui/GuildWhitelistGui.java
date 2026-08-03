@@ -232,7 +232,7 @@ public class GuildWhitelistGui implements GuiHolder {
         saveWhitelist(player);
         player.closeInventory();
         // Re-open the editor
-        var editor = ShopEditorGui.getActiveInstance();
+        var editor = ShopEditorGui.getActiveInstance(player);
         if (editor != null) {
             editor.refresh();
             var inv = editor.getInventory();

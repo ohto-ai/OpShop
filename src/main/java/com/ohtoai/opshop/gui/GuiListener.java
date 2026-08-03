@@ -26,7 +26,7 @@ public class GuiListener implements Listener {
 
         // Anvil input for ShopEditorGui — intercept before GuiHolder check
         if (event.getView().getTopInventory().getType() == InventoryType.ANVIL) {
-            ShopEditorGui editor = ShopEditorGui.getActiveInstance();
+            ShopEditorGui editor = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getWhoClicked());
             if (editor != null && editor.isAnvilOpen()) {
                 event.setCancelled(true);
                 if (event.getClickedInventory() == event.getView().getTopInventory()) {
@@ -78,7 +78,7 @@ public class GuiListener implements Listener {
     public void onInventoryClose(InventoryCloseEvent event) {
         // Anvil close — finalize item creation from the input name
         if (event.getView().getTopInventory().getType() == InventoryType.ANVIL) {
-            ShopEditorGui editor = ShopEditorGui.getActiveInstance();
+            ShopEditorGui editor = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getPlayer());
             if (editor != null && editor.isAnvilOpen()) {
                 editor.handleAnvilClose((org.bukkit.entity.Player) event.getPlayer(), event.getInventory());
             }

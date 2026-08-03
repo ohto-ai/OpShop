@@ -97,6 +97,7 @@ public final class GuiUtils {
         lore.add(Component.empty());
         if (buyPrice > 0) {
             lore.add(toComponent(Messages.colorize("&eBuy: &f" + formatPrice(buyPrice) + " " + currencyName)));
+            // Note: GuiUtils.addPriceLore is a legacy utility; new code uses Messages keys
         }
         if (sellPrice > 0) {
             lore.add(toComponent(Messages.colorize("&eSell: &f" + formatPrice(sellPrice) + " " + currencyName)));
@@ -111,5 +112,29 @@ public final class GuiUtils {
             return String.valueOf((long) price);
         }
         return String.format("%.2f", price);
+    }
+
+    /**
+     * Prepare a cloned currency item for GUI display.
+     * <p>
+     * Items with {@code !minecraft:lore} data component (lore explicitly absent)
+     * will not display any added lore text. This method uses a serialize→deserialize
+     * round-trip to normalize data components, which strips the lore-absent marker
+     * and makes the lore component available for GUI labels (prices, status, hints).
+     * The original item is NOT modified.
+     */
+    public static ItemStack prepareCurrencyIcon(ItemStack original) {
+        if (original == null || original.isEmpty()) return original;
+        // Step 1: Clone and editMeta to force lore component into existence
+        ItemStack icon = original.clone();
+        icon.editMeta(meta -> meta.lore(new java.util.ArrayList<>()));
+        // Step 2: Serialize→deserialize round-trip to normalize data components.
+        // The editMeta above creates the lore component; the round-trip ensures
+        // the "absent" marker (!minecraft:lore) is fully purged from the
+        // internal DataComponentPatch, so subsequent getItemMeta/setItemMeta
+        // operations can freely modify lore.
+        byte[] normalized = icon.serializeAsBytes();
+        ItemStack rebuilt = ItemStack.deserializeBytes(normalized);
+        return rebuilt != null ? rebuilt : icon;
     }
 }

@@ -204,7 +204,8 @@ public class ItemDetailGui implements GuiHolder {
             ItemStack icon;
             if (provider.getType() == CurrencyType.CUSTOM_ITEM && provider.getDisplayItem() != null) {
                 // Use the full original item (preserves enchantments, flags, glow, etc.)
-                icon = provider.getDisplayItem().clone();
+                // prepareCurrencyIcon handles !minecraft:lore items correctly
+                icon = GuiUtils.prepareCurrencyIcon(provider.getDisplayItem());
                 var m = icon.getItemMeta();
                 List<net.kyori.adventure.text.Component> combinedLore = m.hasLore()
                     ? new ArrayList<>(m.lore()) : new ArrayList<>();
@@ -224,7 +225,7 @@ public class ItemDetailGui implements GuiHolder {
                     case PLAYER_POINTS -> Material.PAPER;
                     default -> isSelected ? Material.LIME_WOOL : Material.LIGHT_GRAY_WOOL;
                 };
-                icon = GuiUtils.makeItem(mat, (isSelected ? "&a&l" : "&7") + provider.getDisplayName(), lore);
+                icon = GuiUtils.makeItem(mat, (isSelected ? "&a&l" : "&7") + currencyManager.getDisplayName(pc.getCurrencyId()), lore);
                 if (isSelected) {
                     var m = icon.getItemMeta();
                     m.addEnchant(org.bukkit.enchantments.Enchantment.UNBREAKING, 1, true);
@@ -249,8 +250,7 @@ public class ItemDetailGui implements GuiHolder {
 
     private void buildBuyButton(int slot, int qty, double unitPrice) {
         double total = unitPrice * qty;
-        var providerOpt = currencyManager.getProvider(selectedCurrency);
-        String curName = providerOpt.map(CurrencyProvider::getDisplayName).orElse(selectedCurrency);
+        String curName = currencyManager.getDisplayName(selectedCurrency);
 
         List<String> lore = new ArrayList<>();
         lore.add(m("gui.buy-x-desc", "&7Buy &f{qty}x &7for &f{price} {currency}",
@@ -266,10 +266,10 @@ public class ItemDetailGui implements GuiHolder {
         double total = unitPrice * qty;
         ItemStack product = ItemSerializer.deserialize(shopItem.getProductItem());
         int playerHas = countPlayerItems(product);
+        String curName = currencyManager.getDisplayName(selectedCurrency);
         List<String> lore = new ArrayList<>();
         lore.add(m("gui.sell-x-desc", "&7Sell &f{qty}x &7for &f{price} {currency}",
-            "{qty}", String.valueOf(qty), "{price}", formatPrice(total),
-            "{currency}", currencyManager.getProvider(selectedCurrency).map(CurrencyProvider::getDisplayName).orElse(selectedCurrency)));
+            "{qty}", String.valueOf(qty), "{price}", formatPrice(total), "{currency}", curName));
         lore.add(m("gui.sell.you-have", "&7You have: &f{count}", "{count}", String.valueOf(playerHas)));
         lore.add("");
         lore.add(m("gui.sell.click-to-sell", "&eClick to sell!"));
@@ -370,7 +370,7 @@ public class ItemDetailGui implements GuiHolder {
                     .filter(p -> p.getCurrencyId().equals(selectedCurrency)).findFirst().orElse(null);
                 double needed = pc != null ? pc.getBuyPrice() : 0;
                 String msg = plugin.getMessages().format("not-enough-currency",
-                    "{currency}", provider.map(CurrencyProvider::getDisplayName).orElse(selectedCurrency),
+                    "{currency}", currencyManager.getDisplayName(selectedCurrency),
                     "{amount}", formatPrice(needed),
                     "{balance}", formatPrice(balance));
                 player.sendMessage(prefix + msg);

@@ -58,7 +58,13 @@ public class ShopItem {
     public String getId() { return id; }
     public int getPage() { return page; }
     public int getSlot() { return slot; }
+    /**
+     * Returns the serialized item data shown in the shop GUI (item preview).
+     * Currently identical to {@link #getProductItem()} — there is no separate
+     * display item; the stored product is used for both display and delivery.
+     */
     public byte[] getDisplayItem() { return productItem; }
+    /** Returns the serialized item data delivered to the player on purchase. */
     public byte[] getProductItem() { return productItem; }
     public boolean isBuyEnabled() { return buyEnabled; }
     public boolean isSellEnabled() { return sellEnabled; }

@@ -30,6 +30,8 @@ gui:
   items-total: "&7{count} items total"
   close: "&cClose"
   close-desc: "&7Close the shop"
+  buy-price-lore: "&eBuy: &f{price} {currency}"
+  sell-price-lore: "&eSell: &f{price} {currency}"
   back: "&6← Back"
   back-to-shop: "&6← Back to Shop"
   back-desc: "&7Return to shop menu"
@@ -81,6 +83,7 @@ gui:
     earn-per: "&7Earn per item: &f{price} {currency}"
     total-earn: "&7Total earn: &f{price} {currency}"
     not-enough-qty: "&7You only have &f{count} &7items"
+    qty-unavailable: "&cx{qty}"
 
   # Transaction log
   log:
@@ -287,8 +290,45 @@ editor:
   get-item-desc-2: "&7without placeholder replacement."
   get-item-desc-3: "&7Shift+Click to get with placeholders applied."
 
+  # Editor action feedback
+  drop-hint-grid: "&7Drop items on the grid area (slots 0-44) to add them."
+  invalid-price-format: "&cInvalid number format! Use: buy sell (e.g. 100 50)"
+  invalid-number: "&cInvalid number! Type a price like: 100.5"
+  price-set: "&aPrice set to: &f{value}"
+  price-set-currency: "&aSet {currency}: Buy={buy} Sell={sell}"
+  price-set-vault: "&aVault: Buy={buy} Sell={sell}"
+  price-set-points: "&aPoints: Buy={buy} Sell={sell}"
+  hold-item-first: "&cHold an item in your main hand first!"
+  item-created-anvil: "&aCreated: &e{id}"
+  item-created-from-hand: "&aCreated new item: &e{id}"
+  item-updated: "&aItem updated: &e{id}"
+  item-no-longer-exists: "&cItem no longer exists."
+  item-saved: "&aItem saved: &e{id}"
+  save-failed: "&cFailed to save item!"
+  delete-confirm-hint: "&cClick the red wool again to confirm deletion."
+  delete-failed-msg: "&cFailed to delete item!"
+  display-item-set: "&aDisplay item set to: &e{name}"
+  product-item-set: "&aProduct item set to: &e{name}"
+  gave-item: "&aGave 1x &e{id}{flags}"
+  with-placeholders: " &7(with placeholders)"
+  raw: " &7(raw)"
+  anvil-format-hint: "&7Format: buy sell"
+  anvil-eg-hint: "&7e.g. 100 50"
+  anvil-esc-hint: "&7Press &oESC &7to cancel"
+  anvil-type-price: "&7Type new price"
+  back-to-list-desc: "&7Return to item list"
+
 # --- Currency ---
 currency:
+  # Display names — override config.yml display-name for each currency per locale.
+  # Key: currency.name.<currencyId>  (e.g. currency.name.vault_main)
+  name:
+    vault_main: "Gold Coins"
+    pp_tokens: "Tokens"
+  # Singular forms
+  singular:
+    vault_main: "Gold Coin"
+    pp_tokens: "Token"
   list-header: "&eCurrencies:"
   list-item: "  &7- &f{id} &7({name}&r&7, {type})"
   global-defaults: "&7Global defaults:"
@@ -330,6 +370,38 @@ command:
   console-no-add: "Console cannot add items. Use the editor."
   console-no-currency-add: "Console cannot add currencies from held items."
   console-no-log-gui: "Console cannot open the log GUI."
+  console-no-guild-list: "Console cannot open the guild list GUI."
+  console-no-guild-editor: "Console cannot open the guild editor."
+  guild-not-installed: "&cGuildPlugin is not installed."
+  guild-not-found: "&cGuild not found: &e{name}"
+  not-in-guild: "&cYou are not in a guild. Use &e/oshop guild <name> &cto specify one."
+  hold-item: "&cHold an item in your hand to use as the product!"
+  add-usage: "&cUsage: /oshop admin add <id>"
+  item-exists: "&cItem '{id}' already exists!"
+  item-created: "&aCreated shop item: &e{id}"
+  create-failed: "&cFailed to create item!"
+  delete-usage: "&cUsage: /oshop admin delete <id>"
+  item-deleted: "&aDeleted item: &e{id}"
+  delete-failed: "&cFailed to delete item!"
+  give-usage: "&cUsage: /oshop admin give <player> <itemId> <amount>"
+  gave-item: "&aGave {amount}x {item} to {player}"
+  currency-add-usage: "&cUsage: /oshop admin currency add <id>"
+  hold-currency: "&cHold the currency item in your hand!"
+  currency-registered: "&aRegistered custom currency: &e{id}"
+  currency-registered-hint: "&7Use &e/oshop admin currency setglobal {id} <buy> <sell> &7to set prices."
+  currency-exists: "&cCurrency '{id}' already exists!"
+  currency-delete-usage: "&cUsage: /oshop admin currency delete <id>"
+  currency-deleted: "&aDeleted currency: &e{id}"
+  currency-cannot-delete: "&cCannot delete '{id}'. Only custom-item currencies can be deleted."
+  currency-give-take-usage: "&cUsage: /oshop admin currency <give|take> <player> <currencyId> [amount]"
+  currency-invalid-amount: "&cInvalid amount."
+  currency-gave: "&aGave {amount} to {player}"
+  currency-took: "&aTook {amount} from {player}"
+  currency-setglobal-usage: "&cUsage: /oshop admin currency setglobal <currencyId> <buyPrice> <sellPrice>"
+  currency-cannot-setglobal: "&cCannot set global default for custom-item currency '{id}'. Custom currencies are set per-item in the editor."
+  currency-setglobal-done: "&aGlobal default for &e{id} &aset: buy={buy} sell={sell}"
+  resetlimit-error: "&cError resetting purchase limit!"
+  resetlimit-refunded: " &7(refunded {count})"
 
 # --- Trace ---
 trace:

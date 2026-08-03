@@ -230,6 +230,18 @@ public class ShopManager {
                 ps.setString(1, id);
                 ps.executeUpdate();
             }
+            // Delete custom currency prices
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM shop_item_prices WHERE shop_item_id = ?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
+            // Delete player purchase records
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM player_purchases WHERE shop_item_id = ?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
             // Delete the item itself
             try (PreparedStatement ps = conn.prepareStatement(
                     "DELETE FROM shop_items WHERE id = ?")) {
@@ -410,6 +422,9 @@ public class ShopManager {
         cooldowns.computeIfAbsent(playerUuid, k -> new ConcurrentHashMap<>())
             .put(item.getId(), System.currentTimeMillis());
     }
+    public void clearCooldowns(UUID playerUuid) {
+        cooldowns.remove(playerUuid);
+    }
 
     // --- Player purchase tracking ---
     public int getPlayerPurchaseCount(UUID puid, String itemId) throws SQLException {
@@ -436,10 +451,19 @@ public class ShopManager {
     }
 
     public void decrementPlayerPurchase(UUID puid, String itemId, int amount) throws SQLException {
-        String sql = "UPDATE player_purchases SET count = MAX(0, count - ?) WHERE player_uuid = ? AND shop_item_id = ?";
+        // Read current count first — SQLite doesn't support MAX() in UPDATE SET
+        int current = getPlayerPurchaseCount(puid, itemId);
+        int newCount = Math.max(0, current - amount);
+        String sql = databaseManager.isMySQL()
+            ? "UPDATE player_purchases SET count = GREATEST(0, count - ?) WHERE player_uuid = ? AND shop_item_id = ?"
+            : "UPDATE player_purchases SET count = ? WHERE player_uuid = ? AND shop_item_id = ?";
         try (Connection conn = databaseManager.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, amount);
+            if (databaseManager.isMySQL()) {
+                ps.setInt(1, amount);
+            } else {
+                ps.setInt(1, newCount);
+            }
             ps.setString(2, puid.toString());
             ps.setString(3, itemId);
             ps.executeUpdate();

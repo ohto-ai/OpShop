@@ -106,7 +106,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
         if (!plugin.getHookManager().isGuildEnabled()) {
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&cGuildPlugin is not installed."));
+                + plugin.getMessages().get("command.guild-not-installed", "&cGuildPlugin is not installed.")));
             return true;
         }
 
@@ -127,7 +127,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             }
             if (guildId == null) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&cGuild not found: &e" + searchName));
+                    + plugin.getMessages().get("command.guild-not-found", "&cGuild not found: &e{name}",
+                        "{name}", searchName)));
                 return true;
             }
         } else {
@@ -135,7 +136,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             var playerGuild = plugin.getHookManager().getGuildBridge().getPlayerGuild(player.getUniqueId());
             if (playerGuild == null) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&cYou are not in a guild. Use &e/oshop guild <name> &cto specify one."));
+                    + plugin.getMessages().get("command.not-in-guild", "&cYou are not in a guild. Use &e/oshop guild <name> &cto specify one.")));
                 return true;
             }
             guildId = playerGuild.id();
@@ -153,7 +154,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleGuildAll(CommandSender sender) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "Console cannot open the guild list GUI."));
+                + plugin.getMessages().get("command.console-no-guild-list", "Console cannot open the guild list GUI.")));
             return true;
         }
         if (!player.hasPermission("opshop.use")) {
@@ -162,7 +163,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
         if (!plugin.getHookManager().isGuildEnabled()) {
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&cGuildPlugin is not installed."));
+                + plugin.getMessages().get("command.guild-not-installed", "&cGuildPlugin is not installed.")));
             return true;
         }
         new com.ohtoai.opshop.gui.GuildListGui(plugin).open(player);
@@ -204,12 +205,12 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleAdminGuild(CommandSender sender, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "Console cannot open the guild editor."));
+                + plugin.getMessages().get("command.console-no-guild-editor", "Console cannot open the guild editor.")));
             return true;
         }
         if (!plugin.getHookManager().isGuildEnabled()) {
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&cGuildPlugin is not installed."));
+                + plugin.getMessages().get("command.guild-not-installed", "&cGuildPlugin is not installed.")));
             return true;
         }
 
@@ -229,7 +230,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             }
         }
         player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-            + "&cGuild not found: &e" + searchName));
+            + plugin.getMessages().get("command.guild-not-found", "&cGuild not found: &e{name}",
+                "{name}", searchName)));
         return true;
     }
 
@@ -241,20 +243,20 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held.getType() == Material.AIR) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cHold an item in your hand to use as the product!"));
+                + plugin.getMessages().get("command.hold-item", "&cHold an item in your hand to use as the product!")));
             return true;
         }
 
         // ID: join all remaining args (supports spaces; page assigned automatically)
         if (args.length < 2) {
             player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cUsage: /oshop admin add <id>"));
+                + plugin.getMessages().get("command.add-usage", "&cUsage: /oshop admin add <id>")));
             return true;
         }
         String id = cleanId(joinArgs(args, 1, args.length));
         if (plugin.getShopManager().getItem(id).isPresent()) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cItem '" + id + "' already exists!"));
+                + plugin.getMessages().get("command.item-exists", "&cItem '{id}' already exists!", "{id}", id)));
             return true;
         }
 
@@ -277,13 +279,13 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
 
             plugin.getShopManager().saveItem(item);
             player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&aCreated shop item: &e" + id));
+                + plugin.getMessages().get("command.item-created", "&aCreated shop item: &e{id}", "{id}", id)));
             // Open editor at the correct page
             var editor = new ShopEditorGui(plugin, plugin.getShopManager(), plugin.getCurrencyManager());
             editor.open(player, targetPage);
         } catch (SQLException e) {
             player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cFailed to create item!"));
+                + plugin.getMessages().get("command.create-failed", "&cFailed to create item!")));
             plugin.getLogger().log(Level.WARNING, "Failed to add item " + id, e);
         }
         return true;
@@ -292,7 +294,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleDelete(CommandSender sender, String[] args) {
         if (args.length < 2) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cUsage: /oshop admin delete <id>"));
+                + plugin.getMessages().get("command.delete-usage", "&cUsage: /oshop admin delete <id>")));
             return true;
         }
         // Support IDs with spaces: /oshop admin delete My Cool Item
@@ -304,10 +306,10 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         try {
             plugin.getShopManager().deleteItem(id);
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&aDeleted item: &e" + id));
+                + plugin.getMessages().get("command.item-deleted", "&aDeleted item: &e{id}", "{id}", id)));
         } catch (SQLException e) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cFailed to delete item!"));
+                + plugin.getMessages().get("command.delete-failed", "&cFailed to delete item!")));
         }
         return true;
     }
@@ -315,7 +317,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleGive(CommandSender sender, String[] args) {
         if (args.length < 4) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cUsage: /oshop admin give <player> <itemId> <amount>"));
+                + plugin.getMessages().get("command.give-usage", "&cUsage: /oshop admin give <player> <itemId> <amount>")));
             return true;
         }
         Player target = Bukkit.getPlayer(args[1]);
@@ -352,7 +354,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
 
         sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-            + "&aGave " + amount + "x " + itemId + " to " + target.getName()));
+            + plugin.getMessages().get("command.gave-item", "&aGave {amount}x {item} to {player}",
+                "{amount}", String.valueOf(amount), "{item}", itemId, "{player}", target.getName())));
         return true;
     }
 
@@ -412,7 +415,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length < 2) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cUsage: /oshop admin currency add <id>"));
+                + plugin.getMessages().get("command.currency-add-usage", "&cUsage: /oshop admin currency add <id>")));
             return true;
         }
 
@@ -421,19 +424,19 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held.getType() == Material.AIR) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cHold the currency item in your hand!"));
+                + plugin.getMessages().get("command.hold-currency", "&cHold the currency item in your hand!")));
             return true;
         }
 
         boolean ok = plugin.getCurrencyManager().addCustomCurrency(id, held);
         if (ok) {
             player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&aRegistered custom currency: &e" + id));
+                + plugin.getMessages().get("command.currency-registered", "&aRegistered custom currency: &e{id}", "{id}", id)));
             player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&7Use &e/oshop admin currency setglobal " + id + " <buy> <sell> &7to set prices."));
+                + plugin.getMessages().get("command.currency-registered-hint", "&7Use &e/oshop admin currency setglobal {id} <buy> <sell> &7to set prices.", "{id}", id)));
         } else {
             player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cCurrency '" + id + "' already exists!"));
+                + plugin.getMessages().get("command.currency-exists", "&cCurrency '{id}' already exists!", "{id}", id)));
         }
         return true;
     }
@@ -441,7 +444,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleCurrencyDelete(CommandSender sender, String[] args) {
         if (args.length < 2) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cUsage: /oshop admin currency delete <id>"));
+                + plugin.getMessages().get("command.currency-delete-usage", "&cUsage: /oshop admin currency delete <id>")));
             return true;
         }
 
@@ -449,10 +452,10 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         boolean ok = plugin.getCurrencyManager().deleteCurrency(currencyId);
         if (ok) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&aDeleted currency: &e" + currencyId));
+                + plugin.getMessages().get("command.currency-deleted", "&aDeleted currency: &e{id}", "{id}", currencyId)));
         } else {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cCannot delete '" + currencyId + "'. Only custom-item currencies can be deleted."));
+                + plugin.getMessages().get("command.currency-cannot-delete", "&cCannot delete '{id}'. Only custom-item currencies can be deleted.", "{id}", currencyId)));
         }
         return true;
     }
@@ -460,7 +463,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleCurrencyGiveTake(CommandSender sender, String[] args) {
         if (args.length < 3) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cUsage: /oshop admin currency <give|take> <player> <currencyId> [amount]"));
+                + plugin.getMessages().get("command.currency-give-take-usage", "&cUsage: /oshop admin currency <give|take> <player> <currencyId> [amount]")));
             return true;
         }
 
@@ -482,7 +485,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         if (args.length > 3 && isNumeric(args[args.length - 1])) {
             try { amount = Double.parseDouble(args[args.length - 1]); }
             catch (NumberFormatException e) {
-                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cInvalid amount."));
+                sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("command.currency-invalid-amount", "&cInvalid amount.")));
                 return true;
             }
         }
@@ -491,11 +495,13 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         if (action.equals("give")) {
             provider.deposit(target, amount);
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&aGave " + provider.format(amount) + " to " + target.getName()));
+                + plugin.getMessages().get("command.currency-gave", "&aGave {amount} to {player}",
+                    "{amount}", provider.format(amount), "{player}", target.getName())));
         } else {
             provider.withdraw(target, amount);
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&aTook " + provider.format(amount) + " from " + target.getName()));
+                + plugin.getMessages().get("command.currency-took", "&aTook {amount} from {player}",
+                    "{amount}", provider.format(amount), "{player}", target.getName())));
         }
         return true;
     }
@@ -503,7 +509,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private boolean handleCurrencySetGlobal(CommandSender sender, String[] args) {
         if (args.length < 4) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cUsage: /oshop admin currency setglobal <currencyId> <buyPrice> <sellPrice>"));
+                + plugin.getMessages().get("command.currency-setglobal-usage", "&cUsage: /oshop admin currency setglobal <currencyId> <buyPrice> <sellPrice>")));
             return true;
         }
 
@@ -519,8 +525,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         var type = provider.get().getType();
         if (type == com.ohtoai.opshop.currency.CurrencyType.CUSTOM_ITEM) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cCannot set global default for custom-item currency '" + currencyId
-                + "'. Custom currencies are set per-item in the editor."));
+                + plugin.getMessages().get("command.currency-cannot-setglobal", "&cCannot set global default for custom-item currency '{id}'. Custom currencies are set per-item in the editor.", "{id}", currencyId)));
             return true;
         }
 
@@ -529,8 +534,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             double sell = Double.parseDouble(args[args.length - 1]);
             plugin.getCurrencyManager().setGlobalDefault(currencyId, buy, sell);
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&aGlobal default for &e" + currencyId
-                + " &aset: buy=" + formatPrice(buy) + " sell=" + formatPrice(sell)));
+                + plugin.getMessages().get("command.currency-setglobal-done", "&aGlobal default for &e{id} &aset: buy={buy} sell={sell}",
+                    "{id}", currencyId, "{buy}", formatPrice(buy), "{sell}", formatPrice(sell))));
         } catch (NumberFormatException e) {
             sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("editor.invalid-price", "&cInvalid price."));
         }
@@ -572,11 +577,12 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             String msg = plugin.getMessages().get("prefix")
                 + plugin.getMessages().get("command.resetlimit-done", "&aReset purchase limit for {player} on {item}.",
                     "{player}", target.getName(), "{item}", itemId);
-            if (oldCount > 0) msg += " &7(refunded " + oldCount + ")";
+            if (oldCount > 0) msg += plugin.getMessages().get("command.resetlimit-refunded", " &7(refunded {count})",
+                "{count}", String.valueOf(oldCount));
             sender.sendMessage(Messages.colorize(msg));
         } catch (SQLException e) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + plugin.getMessages().get("error-reading-logs", "&cError resetting limit!")));
+                + plugin.getMessages().get("command.resetlimit-error", "&cError resetting purchase limit!")));
             plugin.getLogger().log(Level.WARNING, "Failed to reset player purchase limit", e);
         }
         return true;
@@ -1175,10 +1181,12 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             if (held.getType() != Material.AIR) {
                 String name;
                 if (held.hasItemMeta() && held.getItemMeta().hasDisplayName()) {
+                    // Use the item's custom display name (plain text)
                     name = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
                         .plainText().serialize(held.getItemMeta().displayName());
                 } else {
-                    name = held.getType().name().toLowerCase();
+                    // Format material name: DIAMOND_SWORD → diamond sword
+                    name = held.getType().name().toLowerCase().replace('_', ' ');
                 }
                 return name.isEmpty() ? List.of() : List.of(name);
             }

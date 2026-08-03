@@ -42,6 +42,7 @@ public class PluginConfig {
     // General
     private String locale;
     private boolean debug;
+    private boolean defaultBuySellEnabled;
 
     public PluginConfig(OpShopPlugin plugin) {
         this.plugin = plugin;
@@ -132,6 +133,7 @@ public class PluginConfig {
 
         this.locale = config.getString("locale", "en");
         this.debug = config.getBoolean("debug", false);
+        this.defaultBuySellEnabled = config.getBoolean("default-buy-sell-enabled", false);
 
         if (debug) {
             plugin.getLogger().info("Config loaded: " + currencyDefs.size() + " currencies, "
@@ -162,6 +164,7 @@ public class PluginConfig {
 
     public String getLocale() { return locale; }
     public boolean isDebug() { return debug; }
+    public boolean isDefaultBuySellEnabled() { return defaultBuySellEnabled; }
 
     /**
      * Currency definition record parsed from config.

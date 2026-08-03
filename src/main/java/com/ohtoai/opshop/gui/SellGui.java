@@ -107,7 +107,7 @@ public class SellGui implements GuiHolder {
             if (qty > playerHas) {
                 // Show unavailable qty as a barrier
                 inventory.setItem(QTY_SLOTS[i], GuiUtils.makeItem(Material.BARRIER,
-                    "&cx" + qty,
+                    m("gui.sell.qty-unavailable", "&cx{qty}", "{qty}", String.valueOf(qty)),
                     List.of(m("gui.sell.not-enough-qty", "&7You only have &f{count} &7items", "{count}", String.valueOf(playerHas)))));
                 continue;
             }

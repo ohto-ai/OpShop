@@ -112,7 +112,7 @@ public class CustomCurrencyPriceGui implements GuiHolder {
         // Try to get the full original item from the provider first
         var provider = currencyManager.getProvider(currencyId);
         if (provider.isPresent() && provider.get().getDisplayItem() != null) {
-            return provider.get().getDisplayItem().clone();
+            return GuiUtils.prepareCurrencyIcon(provider.get().getDisplayItem());
         }
 
         // Fallback: build from currency definition
@@ -147,7 +147,7 @@ public class CustomCurrencyPriceGui implements GuiHolder {
         // Set Both — delegate to ShopEditorGui's anvil
         if (slot == SLOT_SET_BOTH) {
             player.closeInventory();
-            var editor = ShopEditorGui.getActiveInstance();
+            var editor = ShopEditorGui.getActiveInstance(player);
             if (editor != null) {
                 editor.triggerPriceAnvil(player, currencyId);
             }

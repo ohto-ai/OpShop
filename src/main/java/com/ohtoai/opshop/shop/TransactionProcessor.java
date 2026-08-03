@@ -182,6 +182,11 @@ public class TransactionProcessor {
         if (item.isGenerateUniqueId()) {
             traceId = insertTransaction(player, item, TransactionRecord.TransactionType.BUY,
                 currencyId, selectedPrice.getBuyPrice(), quantity, totalCost, product);
+            if (traceId < 0) {
+                // Failed to insert transaction — refund and abort
+                provider.deposit(player, totalCost);
+                return Result.TRANSACTION_FAILED;
+            }
             // Write trace ID to item PDC immediately
             var pm = product.getItemMeta();
             pm.getPersistentDataContainer().set(
@@ -263,7 +268,7 @@ public class TransactionProcessor {
             "{amount}", String.valueOf(quantity),
             "{item}", productName,
             "{price}", priceFormatted,
-            "{currency}", provider.getDisplayName());
+            "{currency}", currencyManager.getDisplayName(currencyId));
         if (traceId >= 0) {
             msg += plugin.getMessages().get("editor.trace-id-suffix",
                 " &7[Trace ID: &f{id}&7]",
@@ -378,7 +383,7 @@ public class TransactionProcessor {
             "{amount}", String.valueOf(quantity),
             "{item}", productName,
             "{price}", priceFormatted,
-            "{currency}", providerOpt.get().getDisplayName());
+            "{currency}", currencyManager.getDisplayName(currencyId));
         player.sendMessage(plugin.getMessages().get("prefix") + msg);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.0f);
 

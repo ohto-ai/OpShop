@@ -230,6 +230,28 @@ public class CurrencyManager {
         return Optional.ofNullable(providers.get(currencyId));
     }
 
+    /**
+     * Get the locale-aware display name for a currency.
+     * Checks {@code currency.name.<currencyId>} in the Messages file first,
+     * falls back to the provider's displayName from config.
+     */
+    public String getDisplayName(String currencyId) {
+        var provider = providers.get(currencyId);
+        String fallback = provider != null ? provider.getDisplayName() : currencyId;
+        return plugin.getMessages().get("currency.name." + currencyId, fallback);
+    }
+
+    /**
+     * Get the locale-aware singular display name for a currency.
+     * Checks {@code currency.singular.<currencyId>} in the Messages file first,
+     * falls back to the provider's displaySingular from config.
+     */
+    public String getDisplaySingular(String currencyId) {
+        var provider = providers.get(currencyId);
+        String fallback = provider != null ? provider.getDisplaySingular() : currencyId;
+        return plugin.getMessages().get("currency.singular." + currencyId, fallback);
+    }
+
     public Collection<CurrencyProvider> getAllProviders() {
         return Collections.unmodifiableCollection(providers.values());
     }
