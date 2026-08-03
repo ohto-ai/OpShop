@@ -85,7 +85,7 @@ public class SellGui implements GuiHolder {
     }
 
     private void buildInventory(Player player) {
-        String title = "&8Sell: " + shopItem.getId();
+        String title = m("gui.sell.title", "&8Sell: {id}", "{id}", shopItem.getId());
         this.inventory = GuiUtils.createInventory(this, ROWS, title);
 
         Material filler = Material.matchMaterial(plugin.getPluginConfig().getFillerMaterial());
@@ -230,7 +230,7 @@ public class SellGui implements GuiHolder {
             case CURRENCY_UNAVAILABLE ->
                 player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("currency-disabled"));
             default -> player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cTransaction failed."));
+                + m("editor.transaction-failed", "&cTransaction failed.")));
         }
     }
 

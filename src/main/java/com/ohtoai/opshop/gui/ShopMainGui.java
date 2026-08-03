@@ -35,6 +35,12 @@ public class ShopMainGui implements GuiHolder {
     private Inventory inventory;
     private int currentPage = 0;
 
+    // Per-player guild filter context (set by /oshop guild command)
+    private final Map<UUID, Integer> playerGuildId = new HashMap<>();
+    private final Map<UUID, String> playerGuildName = new HashMap<>();
+    private Integer guildIdFor(Player p) { return playerGuildId.get(p.getUniqueId()); }
+    private String guildNameFor(Player p) { return playerGuildName.get(p.getUniqueId()); }
+
     private static final int ROWS = 6;
     private static final int ITEMS_PER_PAGE = 45;
 
@@ -56,12 +62,32 @@ public class ShopMainGui implements GuiHolder {
      * Open the main shop view showing all items.
      */
     public void open(Player player) {
+        this.playerGuildId.remove(player.getUniqueId());
+        this.playerGuildName.remove(player.getUniqueId());
+        com.ohtoai.opshop.item.PlaceholderReplacer.clearGuildContext(player.getUniqueId());
+        this.currentPage = 0;
+        buildAndShow(player);
+    }
+
+    /**
+     * Open the shop filtered for a specific guild's perspective.
+     * @param guildTag the guild's short tag (may be null)
+     */
+    public void openForGuild(Player player, int guildId, String guildName, String guildTag) {
+        this.playerGuildId.put(player.getUniqueId(), guildId);
+        this.playerGuildName.put(player.getUniqueId(), guildName);
+        com.ohtoai.opshop.item.PlaceholderReplacer.setGuildContext(
+            player.getUniqueId(), guildName, guildTag);
         this.currentPage = 0;
         buildAndShow(player);
     }
 
     private void buildAndShow(Player player) {
-        String title = plugin.getPluginConfig().getGuiTitle();
+        String gName = guildNameFor(player);
+        String title = gName != null
+            ? plugin.getMessages().get("gui.guild-title", "&8{name} Shop",
+                "{name}", gName)
+            : plugin.getPluginConfig().getGuiTitle();
         this.inventory = GuiUtils.createInventory(this, ROWS, title);
 
         Material fillerMaterial = Material.matchMaterial(plugin.getPluginConfig().getFillerMaterial());
@@ -75,11 +101,29 @@ public class ShopMainGui implements GuiHolder {
     private void buildItemView(Material fillerMaterial, Player player) {
         GuiUtils.fill(inventory, fillerMaterial);
 
-        // Filter items by current page
-        List<ShopItem> itemsOnPage = shopManager.getItemsOnPage(currentPage);
-        int totalPages = shopManager.getItemCount() == 0 ? 1 : shopManager.getMaxNonEmptyPage() + 1;
+        // Filter items: normal shop excludes guild items; guild view only shows this guild's items
+        List<ShopItem> allItems = shopManager.getAllItems();
+        Integer gId = guildIdFor(player);
+        if (gId != null) {
+            allItems = allItems.stream()
+                .filter(i -> i.isGuildRestricted() && i.getAllowedGuildIds().contains(gId))
+                .toList();
+        } else {
+            allItems = allItems.stream()
+                .filter(i -> !i.isGuildRestricted())
+                .toList();
+        }
+        // Calculate pagination based on the filtered list
+        int totalItemCount = allItems.size();
+        int totalPages = totalItemCount == 0 ? 1
+            : allItems.stream().mapToInt(ShopItem::getPage).max().orElse(0) + 1;
         if (currentPage >= totalPages) currentPage = totalPages - 1;
         if (currentPage < 0) currentPage = 0;
+
+        List<ShopItem> itemsOnPage = allItems.stream()
+            .filter(i -> i.getPage() == currentPage)
+            .sorted(Comparator.comparingInt(ShopItem::getSlot))
+            .toList();
 
         for (int i = 0; i < itemsOnPage.size() && i < ITEMS_PER_PAGE; i++) {
             ShopItem item = itemsOnPage.get(i);
@@ -94,7 +138,7 @@ public class ShopMainGui implements GuiHolder {
                 displayItem = com.ohtoai.opshop.item.PlaceholderReplacer.applyPreview(displayItem, player);
             }
 
-            displayItem = addPriceInfo(displayItem, item);
+            displayItem = addPriceInfo(displayItem, item, player);
             inventory.setItem(displaySlot, displayItem);
         }
 
@@ -108,7 +152,8 @@ public class ShopMainGui implements GuiHolder {
         }
         inventory.setItem(SLOT_INFO, GuiUtils.makeItem(Material.PAPER,
             m("gui.page-info", "&ePage {current} / {total}", "{current}", String.valueOf(currentPage + 1), "{total}", String.valueOf(totalPages)),
-            List.of(m("gui.items-total", "&7{count} items total", "{count}", String.valueOf(shopManager.getItemCount())))));
+            List.of(m("gui.items-total", "&7{count} items total",
+                "{count}", String.valueOf(guildIdFor(player) != null ? totalItemCount : shopManager.getItemCount())))));
         if (currentPage < totalPages - 1) {
             inventory.setItem(SLOT_NEXT, GuiUtils.makeItem(Material.ARROW,
                 m("gui.next-page", "&a→ Next Page"),
@@ -121,7 +166,7 @@ public class ShopMainGui implements GuiHolder {
     /**
      * Add buy/sell price preview lore to a display item.
      */
-    private ItemStack addPriceInfo(ItemStack displayItem, ShopItem item) {
+    private ItemStack addPriceInfo(ItemStack displayItem, ShopItem item, Player player) {
         ItemMeta meta = displayItem.getItemMeta();
         List<Component> lore = meta.hasLore() ? new ArrayList<>(meta.lore()) : new ArrayList<>();
         lore.add(Component.empty());
@@ -147,6 +192,37 @@ public class ShopMainGui implements GuiHolder {
         }
         if (buyPrices.isEmpty() && sellPrices.isEmpty()) {
             lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.not-available", "&cNot available for trade"))));
+        }
+        // Guild restriction info
+        if (item.isGuildRestricted()) {
+            var hook = plugin.getHookManager();
+            lore.add(Component.empty());
+            // Check if current guild filter matches this item
+            Integer gId = guildIdFor(player);
+            boolean guildCanBuy = gId != null
+                && item.getAllowedGuildIds().contains(gId);
+            if (gId != null && !guildCanBuy) {
+                lore.add(GuiUtils.toComponent(Messages.colorize(
+                    m("gui.guild-locked", "&c&l🔒 Locked for this guild"))));
+            }
+            lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.guild-restricted", "&d&lGuild Restricted"))));
+            if (hook.isGuildEnabled()) {
+                int shown = 0;
+                for (var gi : hook.getGuildBridge().getAllGuilds()) {
+                    if (shown >= 3) break;
+                    if (item.getAllowedGuildIds().contains(gi.id())) {
+                        lore.add(GuiUtils.toComponent(Messages.colorize(
+                            "&7  &f" + (gi.name() != null ? gi.name() : "#" + gi.id())
+                                + " &7[" + (gi.tag() != null ? gi.tag() : "") + "]")));
+                        shown++;
+                    }
+                }
+                int remaining = item.getAllowedGuildIds().size() - shown;
+                if (remaining > 0) {
+                    lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.guild-more",
+                        "&7  ... +{count} more", "{count}", String.valueOf(remaining)))));
+                }
+            }
         }
         lore.add(Component.empty());
         lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.click-to-view", "&eClick to view details"))));
@@ -208,6 +284,7 @@ public class ShopMainGui implements GuiHolder {
         }
 
         // Close and open ItemDetailGui
+        // Note: guild membership is checked authoritatively by TransactionProcessor at purchase time
         player.closeInventory();
         new ItemDetailGui(plugin, this, item, transactionProcessor, shopManager, currencyManager).open(player);
     }
@@ -227,9 +304,12 @@ public class ShopMainGui implements GuiHolder {
      * Called by sub-GUIs (ItemDetailGui) when returning to the shop.
      */
     public void returnToShop(Player player) {
-        // Rebuild at current page — don't reset to page 0
+        // Rebuild at current page — preserve guild context
         buildAndShow(player);
     }
+
+    public Integer getCurrentGuildId(Player player) { return guildIdFor(player); }
+    public String getCurrentGuildName(Player player) { return guildNameFor(player); }
 
     private String formatPrice(double price) {
         if (price == Math.floor(price)) return String.valueOf((long) price);

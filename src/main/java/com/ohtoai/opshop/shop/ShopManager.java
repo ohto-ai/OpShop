@@ -54,6 +54,7 @@ public class ShopManager {
                 item.setPlayerLimit(rs.getInt("player_limit"));
                 item.setRefundLimit(getColumnBoolean(rs, "refund_limit"));
                 item.setGenerateUniqueId(getColumnBoolean(rs, "generate_unique_id"));
+                item.setGuildRestrictionEnabled(getColumnBoolean(rs, "guild_restriction_enabled"));
                 // New pricing columns (may not exist in old DB, default to 0)
                 item.setVaultBuyPrice(getColumnDouble(rs, "vault_buy_price"));
                 item.setVaultSellPrice(getColumnDouble(rs, "vault_sell_price"));
@@ -69,7 +70,68 @@ public class ShopManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to load shop items", e);
         }
+        // Load guild whitelists from shop_item_guilds
+        loadGuildWhitelists();
+        // Load custom currency prices from shop_item_prices
+        loadCustomCurrencyPrices();
+        // Migrate legacy single custom currency to new multi-currency system
+        migrateLegacyCustomCurrency();
         plugin.getLogger().info("Loaded " + items.size() + " shop items.");
+    }
+
+    private void loadGuildWhitelists() {
+        String sql = "SELECT shop_item_id, guild_id FROM shop_item_guilds";
+        try (Connection conn = databaseManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            Map<String, Set<Integer>> guildMap = new HashMap<>();
+            while (rs.next()) {
+                guildMap.computeIfAbsent(rs.getString("shop_item_id"), k -> new HashSet<>())
+                    .add(rs.getInt("guild_id"));
+            }
+            for (var entry : guildMap.entrySet()) {
+                ShopItem item = items.get(entry.getKey());
+                if (item != null) item.setAllowedGuildIds(entry.getValue());
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to load guild whitelists", e);
+        }
+    }
+
+    /** Load custom currency prices from shop_item_prices table and apply to items. */
+    private void loadCustomCurrencyPrices() {
+        String sql = "SELECT shop_item_id, currency_id, buy_price, sell_price FROM shop_item_prices";
+        try (Connection conn = databaseManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                String itemId = rs.getString("shop_item_id");
+                String currencyId = rs.getString("currency_id");
+                double buyPrice = rs.getDouble("buy_price");
+                double sellPrice = rs.getDouble("sell_price");
+                ShopItem item = items.get(itemId);
+                if (item != null) {
+                    item.setCustomCurrencyPrice(currencyId, buyPrice, sellPrice);
+                }
+            }
+            plugin.getLogger().info("Loaded custom currency prices for " + items.size() + " items.");
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to load custom currency prices", e);
+        }
+    }
+
+    /** Migrate legacy single custom currency to the new map-based system. */
+    private void migrateLegacyCustomCurrency() {
+        for (ShopItem item : items.values()) {
+            String legacyId = item.getCustomCurrencyId();
+            if (legacyId != null && !legacyId.isEmpty()
+                && item.getCustomCurrencyPrices().isEmpty()) {
+                if (item.getCustomBuyPrice() > 0 || item.getCustomSellPrice() > 0) {
+                    item.setCustomCurrencyPrice(legacyId, item.getCustomBuyPrice(), item.getCustomSellPrice());
+                    plugin.getLogger().info("Migrated legacy custom currency for " + item.getId() + ": " + legacyId);
+                }
+            }
+        }
     }
 
     private int getColumnInt(ResultSet rs, String col) {
@@ -91,10 +153,11 @@ public class ShopManager {
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
                 total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
+                guild_restriction_enabled,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON DUPLICATE KEY UPDATE
                 page=VALUES(page), slot=VALUES(slot), display_item=VALUES(display_item), product_item=VALUES(product_item),
                 use_global_defaults=VALUES(use_global_defaults), buy_enabled=VALUES(buy_enabled),
@@ -103,6 +166,7 @@ public class ShopManager {
                 apply_placeholders=VALUES(apply_placeholders), total_limit=VALUES(total_limit),
                 total_sold=VALUES(total_sold), player_limit=VALUES(player_limit), refund_limit=VALUES(refund_limit),
                 generate_unique_id=VALUES(generate_unique_id),
+                guild_restriction_enabled=VALUES(guild_restriction_enabled),
                 vault_buy_price=VALUES(vault_buy_price), vault_sell_price=VALUES(vault_sell_price),
                 pp_buy_price=VALUES(pp_buy_price), pp_sell_price=VALUES(pp_sell_price),
                 custom_currency_id=VALUES(custom_currency_id), custom_buy_price=VALUES(custom_buy_price),
@@ -112,10 +176,11 @@ public class ShopManager {
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
                 total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
+                guild_restriction_enabled,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
         try (Connection conn = databaseManager.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -139,6 +204,7 @@ public class ShopManager {
             ps.setInt(i++, item.getPlayerLimit());
             ps.setBoolean(i++, item.isRefundLimit());
             ps.setBoolean(i++, item.isGenerateUniqueId());
+            ps.setBoolean(i++, item.isGuildRestrictionEnabled());
             ps.setDouble(i++, item.getVaultBuyPrice());
             ps.setDouble(i++, item.getVaultSellPrice());
             ps.setDouble(i++, item.getPpBuyPrice());
@@ -151,54 +217,130 @@ public class ShopManager {
             ps.executeUpdate();
         }
         items.put(item.getId(), item);
+
+        // Save custom currency prices to shop_item_prices table
+        saveCustomCurrencyPrices(item);
     }
 
     public void deleteItem(String id) throws SQLException {
-        try (Connection conn = databaseManager.getConnection();
-             PreparedStatement ps = conn.prepareStatement("DELETE FROM shop_items WHERE id = ?")) {
-            ps.setString(1, id);
-            ps.executeUpdate();
+        try (Connection conn = databaseManager.getConnection()) {
+            // Delete guild whitelist entries first (FK constraint)
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM shop_item_guilds WHERE shop_item_id = ?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
+            // Delete the item itself
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM shop_items WHERE id = ?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
         }
         items.remove(id);
+    }
+
+    /**
+     * Persist the guild whitelist for an item.
+     * Replaces all existing entries (DELETE + batch INSERT).
+     */
+    public void saveItemGuilds(String itemId, Set<Integer> guildIds) throws SQLException {
+        try (Connection conn = databaseManager.getConnection()) {
+            // Delete existing
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM shop_item_guilds WHERE shop_item_id = ?")) {
+                ps.setString(1, itemId);
+                ps.executeUpdate();
+            }
+            // Insert new
+            if (guildIds != null && !guildIds.isEmpty()) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO shop_item_guilds (shop_item_id, guild_id) VALUES (?, ?)")) {
+                    for (int gid : guildIds) {
+                        ps.setString(1, itemId);
+                        ps.setInt(2, gid);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            }
+        }
+    }
+
+    /** Persist custom currency prices for an item to the shop_item_prices table. */
+    private void saveCustomCurrencyPrices(ShopItem item) throws SQLException {
+        try (Connection conn = databaseManager.getConnection()) {
+            // Delete existing custom currency prices for this item
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM shop_item_prices WHERE shop_item_id = ?")) {
+                ps.setString(1, item.getId());
+                ps.executeUpdate();
+            }
+            // Insert current custom currency prices
+            var prices = item.getCustomCurrencyPrices();
+            if (!prices.isEmpty()) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO shop_item_prices (shop_item_id, currency_id, buy_price, sell_price) VALUES (?, ?, ?, ?)")) {
+                    for (var entry : prices.entrySet()) {
+                        ps.setString(1, item.getId());
+                        ps.setString(2, entry.getKey());
+                        ps.setDouble(3, entry.getValue().buyPrice());
+                        ps.setDouble(4, entry.getValue().sellPrice());
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+            }
+        }
     }
 
     // --- Price lookup ---
 
     public List<PriceConfig> getBuyPrices(ShopItem item) {
         List<PriceConfig> list = new ArrayList<>();
-        // Dynamically look up the first Vault-type provider instead of hardcoding "vault_main"
+        // Vault
         if (item.getVaultBuyPrice() > 0) {
             var vaultProvider = findFirstProviderByType(com.ohtoai.opshop.currency.CurrencyType.VAULT);
             if (vaultProvider != null)
                 list.add(new PriceConfig(vaultProvider, item.getVaultBuyPrice(), item.getVaultSellPrice()));
         }
-        // Dynamically look up the first PlayerPoints-type provider instead of hardcoding "pp_tokens"
+        // PlayerPoints
         if (item.getPpBuyPrice() > 0) {
             var ppProvider = findFirstProviderByType(com.ohtoai.opshop.currency.CurrencyType.PLAYER_POINTS);
             if (ppProvider != null)
                 list.add(new PriceConfig(ppProvider, item.getPpBuyPrice(), item.getPpSellPrice()));
         }
-        if (item.getCustomCurrencyId() != null && item.getCustomBuyPrice() > 0
-            && currencyManager.getProvider(item.getCustomCurrencyId()).isPresent())
-            list.add(new PriceConfig(item.getCustomCurrencyId(), item.getCustomBuyPrice(), item.getCustomSellPrice()));
+        // All custom currencies with buy price > 0
+        for (var entry : item.getCustomCurrencyPrices().entrySet()) {
+            if (entry.getValue().buyPrice() > 0
+                && currencyManager.getProvider(entry.getKey()).isPresent()) {
+                list.add(new PriceConfig(entry.getKey(), entry.getValue().buyPrice(), entry.getValue().sellPrice()));
+            }
+        }
         return list;
     }
 
     public List<PriceConfig> getSellPrices(ShopItem item) {
         List<PriceConfig> list = new ArrayList<>();
+        // Vault
         if (item.getVaultSellPrice() > 0) {
             var vaultProvider = findFirstProviderByType(com.ohtoai.opshop.currency.CurrencyType.VAULT);
             if (vaultProvider != null)
                 list.add(new PriceConfig(vaultProvider, item.getVaultBuyPrice(), item.getVaultSellPrice()));
         }
+        // PlayerPoints
         if (item.getPpSellPrice() > 0) {
             var ppProvider = findFirstProviderByType(com.ohtoai.opshop.currency.CurrencyType.PLAYER_POINTS);
             if (ppProvider != null)
                 list.add(new PriceConfig(ppProvider, item.getPpBuyPrice(), item.getPpSellPrice()));
         }
-        if (item.getCustomCurrencyId() != null && item.getCustomSellPrice() > 0
-            && currencyManager.getProvider(item.getCustomCurrencyId()).isPresent())
-            list.add(new PriceConfig(item.getCustomCurrencyId(), item.getCustomBuyPrice(), item.getCustomSellPrice()));
+        // All custom currencies with sell price > 0
+        for (var entry : item.getCustomCurrencyPrices().entrySet()) {
+            if (entry.getValue().sellPrice() > 0
+                && currencyManager.getProvider(entry.getKey()).isPresent()) {
+                list.add(new PriceConfig(entry.getKey(), entry.getValue().buyPrice(), entry.getValue().sellPrice()));
+            }
+        }
         return list;
     }
 

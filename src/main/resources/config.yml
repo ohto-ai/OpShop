@@ -12,7 +12,7 @@ database:
   sqlite:
     file: data.db
 
-# Global default currency settings — applied to items that have use_global_defaults: true
+# Global default currency prices — applied to new items as initial values
 global-defaults:
   prices:
     - currency: vault_main
@@ -22,7 +22,9 @@ global-defaults:
       buy-price: 10.0
       sell-price: 5.0
 
-# Currency definitions
+# Currency definitions — VAULT and PLAYER_POINTS reference external economy plugins.
+# CUSTOM_ITEM currencies are managed via /oshop admin currency add and stored in the database;
+# do NOT define them here (they will be ignored).
 currencies:
   vault_main:
     type: vault
@@ -34,39 +36,10 @@ currencies:
     display-name: "Tokens"
     display-singular: "Token"
 
-  custom_gem:
-    type: custom_item
-    display-name: "Gems"
-    display-singular: "Gem"
-    item:
-      material: EMERALD
-      name: "&aShop Gem"
-      lore:
-        - "&7Used as currency at the OpShop"
-      custom-model-data: 1001
-
 # GUI settings
 gui:
   title: "&8OpShop"
-  rows: 6
-  items-per-page: 45
   filler-material: BLACK_STAINED_GLASS_PANE
-
-# Messages — supports color codes
-messages:
-  prefix: "&7[&6OShop&7] "
-  not-enough-currency: "&cYou don't have enough {currency}! Need {amount}, have {balance}."
-  not-enough-items: "&cYou don't have enough of that item to sell!"
-  purchase-success: "&aPurchased {amount}x {item} for {price} {currency}!"
-  sell-success: "&aSold {amount}x {item} for {price} {currency}!"
-  inventory-full: "&cYour inventory is full!"
-  no-permission: "&cYou don't have permission to do that!"
-  shop-empty: "&7The shop is currently empty."
-  item-not-found: "&cShop item not found."
-  currency-disabled: "&cThat currency is not currently available."
-  cooldown-active: "&cYou must wait {time} before buying this again."
-  out-of-stock: "&cThis item is out of stock!"
-  reload-success: "&aConfiguration reloaded successfully."
 
 locale: zh_CN
 debug: false

@@ -46,6 +46,7 @@ public class Messages {
     public void reload() {
         store.clear();
         this.locale = plugin.getPluginConfig().getLocale();
+        plugin.getLogger().info("Loading messages for locale: " + locale);
 
         // 1. Load embedded en.yml (always available as ultimate fallback)
         loadEmbedded("lang/en.yml");
@@ -60,6 +61,7 @@ public class Messages {
         if (langFolder.exists()) {
             File userFile = new File(langFolder, locale + ".yml");
             if (userFile.exists()) {
+                plugin.getLogger().info("Loading user lang override: " + userFile.getAbsolutePath());
                 YamlConfiguration user = YamlConfiguration.loadConfiguration(userFile);
                 for (String key : user.getKeys(true)) {
                     Object val = user.get(key);
@@ -73,33 +75,53 @@ public class Messages {
         for (var entry : configMsgs.entrySet()) {
             store.putIfAbsent(entry.getKey(), entry.getValue());
         }
+
+        plugin.getLogger().info("Loaded " + store.size() + " message keys for locale: " + locale);
     }
 
     private void loadEmbedded(String path) {
-        try (var in = plugin.getClass().getClassLoader().getResourceAsStream(path)) {
-            if (in == null) return;
+        // Use plugin.getResource() — the correct Bukkit API for JAR resources
+        var in = plugin.getResource(path);
+        if (in == null) {
+            plugin.getLogger().warning("Embedded lang file NOT FOUND in JAR: " + path);
+            return;
+        }
+        try (in) {
             YamlConfiguration yml = YamlConfiguration.loadConfiguration(
                 new InputStreamReader(in, StandardCharsets.UTF_8));
+            int before = store.size();
             flatten(yml, "", path);
+            int loaded = store.size() - before;
+            plugin.getLogger().info("Loaded " + loaded + " keys from " + path);
         } catch (Exception e) {
-            plugin.getLogger().warning("Failed to load embedded lang: " + path);
+            plugin.getLogger().log(java.util.logging.Level.WARNING,
+                "Failed to load embedded lang: " + path, e);
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private void flatten(YamlConfiguration yml, String prefix, String source) {
-        for (String key : yml.getKeys(false)) {
+    /**
+     * Recursively flatten a Bukkit ConfigurationSection into dotted keys.
+     * Handles both {@link org.bukkit.configuration.ConfigurationSection} (Bukkit's native
+     * nested type) and raw {@link Map} (from non-Bukkit YAML parsers).
+     */
+    private void flatten(org.bukkit.configuration.ConfigurationSection section, String prefix, String source) {
+        for (String key : section.getKeys(false)) {
             String fullKey = prefix.isEmpty() ? key : prefix + "." + key;
-            Object val = yml.get(key);
+            Object val = section.get(key);
             if (val instanceof String s) {
                 store.put(fullKey, s);
-            } else if (val instanceof Map) {
-                // Nested section — recurse (inefficient but simple)
-                YamlConfiguration section = new YamlConfiguration();
-                for (var entry : ((Map<String, Object>) val).entrySet()) {
-                    section.set(entry.getKey(), entry.getValue());
+            } else if (val instanceof org.bukkit.configuration.ConfigurationSection child) {
+                // Bukkit nested section — recurse directly (no conversion needed)
+                flatten(child, fullKey, source);
+            } else if (val instanceof Map<?, ?> map) {
+                // Raw Map fallback (shouldn't normally occur with Bukkit YAML)
+                @SuppressWarnings("unchecked")
+                var strMap = (Map<String, Object>) map;
+                YamlConfiguration child = new YamlConfiguration();
+                for (var entry : strMap.entrySet()) {
+                    child.set(entry.getKey(), entry.getValue());
                 }
-                flatten(section, fullKey, source);
+                flatten(child, fullKey, source);
             }
         }
     }

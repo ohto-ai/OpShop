@@ -47,6 +47,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
 
         return switch (args[0].toLowerCase()) {
             case "open" -> handleOpen(sender, args);
+            case "guild" -> handleGuild(sender, Arrays.copyOfRange(args, 1, args.length));
+            case "guild-all" -> handleGuildAll(sender);
             case "admin" -> handleAdmin(sender, Arrays.copyOfRange(args, 1, args.length));
             case "version" -> {
                 sender.sendMessage(plugin.getMessages().get("command.version", "&6OShop v{version}",
@@ -89,6 +91,84 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    // --- Guild Shop ---
+
+    private boolean handleGuild(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("command.console-specify-open",
+                    "Console must specify a player: /oshop open <player>")));
+            return true;
+        }
+        if (!player.hasPermission("opshop.use")) {
+            player.sendMessage(plugin.getMessages().get("no-permission"));
+            return true;
+        }
+        if (!plugin.getHookManager().isGuildEnabled()) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + "&cGuildPlugin is not installed."));
+            return true;
+        }
+
+        Integer guildId = null;
+        String guildName = null;
+        String guildTag = null;
+
+        if (args.length > 0) {
+            // Search guild by name
+            String searchName = joinArgs(args, 0, args.length);
+            for (var gi : plugin.getHookManager().getGuildBridge().getAllGuilds()) {
+                if (gi.name() != null && gi.name().equalsIgnoreCase(searchName)) {
+                    guildId = gi.id();
+                    guildName = gi.name();
+                    guildTag = gi.tag();
+                    break;
+                }
+            }
+            if (guildId == null) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&cGuild not found: &e" + searchName));
+                return true;
+            }
+        } else {
+            // Default to player's own guild
+            var playerGuild = plugin.getHookManager().getGuildBridge().getPlayerGuild(player.getUniqueId());
+            if (playerGuild == null) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&cYou are not in a guild. Use &e/oshop guild <name> &cto specify one."));
+                return true;
+            }
+            guildId = playerGuild.id();
+            guildName = playerGuild.name();
+            guildTag = playerGuild.tag();
+        }
+
+        plugin.getShopMainGui().openForGuild(player, guildId,
+            guildName != null ? guildName : "Guild #" + guildId, guildTag);
+        return true;
+    }
+
+    // --- Guild List ---
+
+    private boolean handleGuildAll(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + "Console cannot open the guild list GUI."));
+            return true;
+        }
+        if (!player.hasPermission("opshop.use")) {
+            player.sendMessage(plugin.getMessages().get("no-permission"));
+            return true;
+        }
+        if (!plugin.getHookManager().isGuildEnabled()) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + "&cGuildPlugin is not installed."));
+            return true;
+        }
+        new com.ohtoai.opshop.gui.GuildListGui(plugin).open(player);
+        return true;
+    }
+
     private boolean handleAdmin(CommandSender sender, String[] args) {
         if (!sender.hasPermission("opshop.admin")) {
             sender.sendMessage(plugin.getMessages().get("no-permission"));
@@ -98,6 +178,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
 
         return switch (args[0].toLowerCase()) {
             case "editor" -> handleEditor(sender);
+            case "guild" -> handleAdminGuild(sender, Arrays.copyOfRange(args, 1, args.length));
             case "add" -> handleAdd(sender, args);
             case "delete" -> handleDelete(sender, args);
             case "give" -> handleGive(sender, args);
@@ -117,6 +198,38 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         new ShopEditorGui(plugin, plugin.getShopManager(), plugin.getCurrencyManager()).open(player);
+        return true;
+    }
+
+    private boolean handleAdminGuild(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + "Console cannot open the guild editor."));
+            return true;
+        }
+        if (!plugin.getHookManager().isGuildEnabled()) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + "&cGuildPlugin is not installed."));
+            return true;
+        }
+
+        if (args.length == 0) {
+            // Show guild list for admin
+            new com.ohtoai.opshop.gui.GuildAdminListGui(plugin).open(player);
+            return true;
+        }
+
+        // Search guild by name
+        String searchName = joinArgs(args, 0, args.length);
+        for (var gi : plugin.getHookManager().getGuildBridge().getAllGuilds()) {
+            if (gi.name() != null && gi.name().equalsIgnoreCase(searchName)) {
+                new ShopEditorGui(plugin, plugin.getShopManager(), plugin.getCurrencyManager())
+                    .openForGuild(player, gi.id(), gi.name(), gi.tag());
+                return true;
+            }
+        }
+        player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+            + "&cGuild not found: &e" + searchName));
         return true;
     }
 
@@ -207,7 +320,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
         Player target = Bukkit.getPlayer(args[1]);
         if (target == null) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cPlayer not found."));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-not-found", "&cPlayer not found."));
             return true;
         }
         // Last arg is amount, everything between player and amount is the item ID
@@ -219,7 +332,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
         int amount;
         try { amount = Integer.parseInt(args[args.length - 1]); } catch (NumberFormatException e) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cInvalid amount."));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("editor.invalid-amount", "&cInvalid amount."));
             return true;
         }
 
@@ -354,14 +467,14 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         String action = args[0].toLowerCase();
         Player target = Bukkit.getPlayer(args[1]);
         if (target == null) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cPlayer not found."));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-not-found", "&cPlayer not found."));
             return true;
         }
 
         String currencyId = cleanId(joinArgs(args, 2, args.length > 3 && isNumeric(args[args.length - 1]) ? args.length - 1 : args.length));
         var providerOpt = plugin.getCurrencyManager().getProvider(currencyId);
         if (providerOpt.isEmpty()) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cCurrency not found: " + currencyId));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("editor.currency-not-found", "&cCurrency not found: {currency}", "{currency}", currencyId));
             return true;
         }
 
@@ -398,8 +511,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         String currencyId = cleanId(joinArgs(args, 1, args.length - 2));
         var provider = plugin.getCurrencyManager().getProvider(currencyId);
         if (provider.isEmpty()) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cCurrency not found: " + currencyId));
+            sender.sendMessage(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("editor.currency-not-found", "&cCurrency not found: {currency}", "{currency}", currencyId));
             return true;
         }
         // Only VAULT and PLAYER_POINTS can have global defaults; custom items are per-item
@@ -419,7 +532,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                 + "&aGlobal default for &e" + currencyId
                 + " &aset: buy=" + formatPrice(buy) + " sell=" + formatPrice(sell)));
         } catch (NumberFormatException e) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cInvalid price."));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("editor.invalid-price", "&cInvalid price."));
         }
         return true;
     }
@@ -541,7 +654,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             var records = repo.queryRecent(page, pageSize);
             sendLogPage(sender, records, page + 1, totalPages, null);
         } catch (Exception e) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cError reading logs!"));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("error-reading-logs", "&cError reading logs!"));
             plugin.getLogger().log(Level.WARNING, "Failed to read logs", e);
         }
         return true;
@@ -557,7 +670,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             var records = repo.queryByPlayer(puid, page, pageSize);
             sendLogPage(sender, records, page + 1, totalPages, "Player: " + name);
         } catch (Exception e) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cError reading logs!"));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("error-reading-logs", "&cError reading logs!"));
             plugin.getLogger().log(Level.WARNING, "Failed to read logs by player", e);
         }
         return true;
@@ -573,7 +686,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             var records = repo.queryByItem(itemId, page, pageSize);
             sendLogPage(sender, records, page + 1, totalPages, "Item: " + itemId);
         } catch (Exception e) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix") + "&cError reading logs!"));
+            sender.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("error-reading-logs", "&cError reading logs!"));
             plugin.getLogger().log(Level.WARNING, "Failed to read logs by item", e);
         }
         return true;
@@ -773,7 +886,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     + plugin.getMessages().get("trace.usage", "&cUsage: /oshop admin trace list <item|player> <value> [page]")));
             }
         } catch (Exception e) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cError querying trace records!"));
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + plugin.getMessages().get("editor.trace-query-error", "&cError querying trace records!")));
             plugin.getLogger().log(Level.WARNING, "Failed to query trace records", e);
         }
         return true;
@@ -838,7 +951,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("trace.log.time",
                 "&7Time: &f{time}", "{time}", DATE_FORMAT.format(new Date(rec.getTimestamp())))));
         } catch (Exception e) {
-            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cError looking up trace ID!"));
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + plugin.getMessages().get("editor.trace-lookup-error", "&cError looking up trace ID!")));
             plugin.getLogger().log(Level.WARNING, "Failed to lookup trace ID " + traceId, e);
         }
         return true;
@@ -868,7 +981,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             }
             new com.ohtoai.opshop.gui.TraceViewGui(plugin, rec).open(player);
         } catch (Exception e) {
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cError looking up trace ID!"));
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + plugin.getMessages().get("editor.trace-lookup-error", "&cError looking up trace ID!")));
             plugin.getLogger().log(Level.WARNING, "Failed to open trace view for ID " + traceId, e);
         }
         return true;
@@ -876,7 +989,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
 
     private void sendTraceHelp(CommandSender sender) {
         var m = plugin.getMessages();
-        sender.sendMessage(Messages.colorize("&e===== Trace Commands ====="));
+        sender.sendMessage(plugin.getMessages().get("editor.trace-help-header", "&e===== Trace Commands ====="));
         sender.sendMessage(m.get("trace.help-list-item", "&e/oshop admin trace list item <item> &7— List trace records for an item"));
         sender.sendMessage(m.get("trace.help-list-player", "&e/oshop admin trace list player <player> &7— List trace records for a player"));
         sender.sendMessage(m.get("trace.help-log", "&e/oshop admin trace log [ID] &7— View trace record in chat"));
@@ -890,6 +1003,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(m.get("command.help-header", "&6=== OShop Commands ==="));
         sender.sendMessage(m.get("command.help-open", "&e/oshop &7— Open the shop"));
         sender.sendMessage(m.get("command.help-open-player", "&e/oshop open [player] &7— Open shop for a player"));
+        sender.sendMessage(m.get("command.help-guild", "&e/oshop guild [name] &7— View guild shop"));
+        sender.sendMessage(m.get("command.help-guild-all", "&e/oshop guild-all &7— List guild shops"));
         sender.sendMessage(m.get("command.help-admin", "&e/oshop admin &7— Admin commands"));
         sender.sendMessage(m.get("command.help-version", "&e/oshop version &7— Show version"));
     }
@@ -898,6 +1013,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         var m = plugin.getMessages();
         sender.sendMessage(m.get("command.admin-header", "&6=== OShop Admin ==="));
         sender.sendMessage(m.get("command.admin-editor", "&e/oshop admin editor &7— Open GUI item editor"));
+        sender.sendMessage(m.get("command.admin-guild", "&e/oshop admin guild [name] &7— Edit guild shop"));
         sender.sendMessage(m.get("command.admin-add", "&e/oshop admin add <id> &7— Add item from hand"));
         sender.sendMessage(m.get("command.admin-delete", "&e/oshop admin delete <id> &7— Delete item"));
         sender.sendMessage(m.get("command.admin-give", "&e/oshop admin give <plr> <id> <amt> &7— Give item"));
@@ -921,13 +1037,34 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(List.of("open", "admin", "version"), args[0]);
+            return filter(List.of("open", "guild", "guild-all", "admin", "version"), args[0]);
+        }
+
+        if (args[0].equalsIgnoreCase("guild")) {
+            if (plugin.getHookManager().isGuildEnabled()) {
+                return plugin.getHookManager().getGuildBridge().getAllGuilds().stream()
+                    .map(g -> g.name() != null ? g.name() : String.valueOf(g.id()))
+                    .filter(s -> s.toLowerCase().startsWith(
+                        args.length >= 2 ? args[args.length - 1].toLowerCase() : ""))
+                    .collect(Collectors.toList());
+            }
+            return List.of();
         }
 
         if (!args[0].equalsIgnoreCase("admin")) return List.of();
 
         if (args.length == 2) {
-            return filter(List.of("editor", "add", "delete", "give", "reload", "currency", "log", "view", "resetlimit", "trace"), args[1]);
+            return filter(List.of("editor", "guild", "add", "delete", "give", "reload", "currency", "log", "view", "resetlimit", "trace"), args[1]);
+        }
+        if (args[1].equalsIgnoreCase("guild")) {
+            if (plugin.getHookManager().isGuildEnabled()) {
+                return plugin.getHookManager().getGuildBridge().getAllGuilds().stream()
+                    .map(g -> g.name() != null ? g.name() : String.valueOf(g.id()))
+                    .filter(s -> s.toLowerCase().startsWith(
+                        args.length >= 3 ? args[args.length - 1].toLowerCase() : ""))
+                    .collect(Collectors.toList());
+            }
+            return List.of();
         }
 
         return switch (args[1].toLowerCase()) {

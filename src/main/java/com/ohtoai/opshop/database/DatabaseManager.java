@@ -58,6 +58,25 @@ public class DatabaseManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
 
+    // Guild whitelist table — which guilds can buy a shop item
+    private static final String CREATE_SHOP_ITEM_GUILDS = """
+        CREATE TABLE IF NOT EXISTS shop_item_guilds (
+            shop_item_id  VARCHAR(64) NOT NULL,
+            guild_id      INT NOT NULL,
+            PRIMARY KEY (shop_item_id, guild_id),
+            FOREIGN KEY (shop_item_id) REFERENCES shop_items(id) ON DELETE CASCADE
+        )
+        """;
+
+    private static final String CREATE_SHOP_ITEM_GUILDS_MYSQL = """
+        CREATE TABLE IF NOT EXISTS shop_item_guilds (
+            shop_item_id  VARCHAR(64) NOT NULL,
+            guild_id      INT NOT NULL,
+            PRIMARY KEY (shop_item_id, guild_id),
+            FOREIGN KEY (shop_item_id) REFERENCES shop_items(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+
     private static final String CREATE_SHOP_ITEMS = """
         CREATE TABLE IF NOT EXISTS shop_items (
             id                  VARCHAR(64) PRIMARY KEY,
@@ -77,7 +96,8 @@ public class DatabaseManager {
             total_limit         INT NOT NULL DEFAULT -1,
             total_sold          INT NOT NULL DEFAULT 0,
             player_limit        INT NOT NULL DEFAULT -1,
-            refund_limit        BOOLEAN NOT NULL DEFAULT 0,
+            refund_limit                BOOLEAN NOT NULL DEFAULT 0,
+            guild_restriction_enabled   BOOLEAN NOT NULL DEFAULT 0,
             vault_buy_price     DOUBLE NOT NULL DEFAULT 0,
             vault_sell_price    DOUBLE NOT NULL DEFAULT 0,
             pp_buy_price        DOUBLE NOT NULL DEFAULT 0,
@@ -213,10 +233,13 @@ public class DatabaseManager {
             stmt.execute(isMysql ? CREATE_SHOP_ITEM_PRICES_MYSQL : CREATE_SHOP_ITEM_PRICES);
             stmt.execute(isMysql ? CREATE_TRANSACTIONS_MYSQL : CREATE_TRANSACTIONS);
             stmt.execute(isMysql ? CREATE_PLAYER_PURCHASES_MYSQL : CREATE_PLAYER_PURCHASES);
+            stmt.execute(isMysql ? CREATE_SHOP_ITEM_GUILDS_MYSQL : CREATE_SHOP_ITEM_GUILDS);
             // Migration: add refund_limit column (silently skip if already exists)
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN refund_limit BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
             // Migration: add generate_unique_id column
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN generate_unique_id BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
+            // Migration: add guild_restriction_enabled column
+            try { stmt.execute("ALTER TABLE shop_items ADD COLUMN guild_restriction_enabled BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
         }
     }
 

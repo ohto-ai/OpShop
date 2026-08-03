@@ -4,16 +4,13 @@ import com.ohtoai.opshop.OpShopPlugin;
 import com.ohtoai.opshop.config.Messages;
 import com.ohtoai.opshop.currency.CurrencyManager;
 import com.ohtoai.opshop.item.ItemSerializer;
-import com.ohtoai.opshop.shop.PriceConfig;
 import com.ohtoai.opshop.shop.ShopItem;
 import com.ohtoai.opshop.shop.ShopManager;
 import net.kyori.adventure.text.Component;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -21,10 +18,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.logging.Level;
-import java.util.stream.Collectors;
 
 /**
  * Admin GUI for managing shop items.
@@ -68,10 +62,24 @@ public class ShopEditorGui implements GuiHolder {
     private ShopItem editingItem;
     private boolean deleteConfirmPending = false;
 
-    // Anvil input state — waiting for player to confirm ID
+    // Guild editor mode (null = normal shop editor)
+    private Integer guildEditorId;
+    private String guildEditorName;
+
+    // Pagination for custom currency row (0-indexed page of 5 currencies)
+    private int customCurrencyPage = 0;
+
+    // Anvil input state — waiting for player to confirm ID (add-item mode)
     private boolean anvilOpen = false;
     private ItemStack pendingCursorItem;
     private String pendingDefaultId;
+
+    // Anvil price-input state — waiting for player to type price(s)
+    private boolean anvilPriceMode = false;
+    private int anvilPriceSlot = -1;          // slot that triggered
+    private String anvilPriceCurrencyId;       // non-null = custom currency; null = vault/points
+    private boolean anvilPriceBoth;            // true = "buy sell" format; false = single price
+    private boolean anvilPriceIsSell;          // for single-price mode: true = editing sell, false = editing buy
 
     // -------------------------------------------------------------------------
     // Construction & navigation
@@ -111,7 +119,25 @@ public class ShopEditorGui implements GuiHolder {
         this.editingItem = null;
         this.editingItemId = null;
         this.deleteConfirmPending = false;
+        this.guildEditorId = null;
+        this.guildEditorName = null;
         this.page = page;
+        build();
+        player.openInventory(inventory);
+    }
+
+    /** Open the editor scoped to a guild. Only shows items for that guild. */
+    public void openForGuild(Player player, int guildId, String guildName, String guildTag) {
+        this.currentViewer = player;
+        this.editMode = false;
+        this.editingItem = null;
+        this.editingItemId = null;
+        this.deleteConfirmPending = false;
+        this.guildEditorId = guildId;
+        this.guildEditorName = guildName;
+        com.ohtoai.opshop.item.PlaceholderReplacer.setGuildContext(
+            player.getUniqueId(), guildName, guildTag);
+        this.page = 0;
         build();
         player.openInventory(inventory);
     }
@@ -136,9 +162,15 @@ public class ShopEditorGui implements GuiHolder {
     }
 
     private void build(Player reopenFor) {
-        String title = editMode
-            ? m("editor.edit-title", "&8Editor: {id}", "{id}", editingItemId)
-            : m("editor.title", "&8OpShop Editor");
+        String title;
+        if (editMode) {
+            title = m("editor.edit-title", "&8Editor: {id}", "{id}", editingItemId);
+        } else if (guildEditorId != null) {
+            title = m("editor.guild-editor-title", "&8Guild Editor: {name}",
+                "{name}", guildEditorName != null ? guildEditorName : "#" + guildEditorId);
+        } else {
+            title = m("editor.title", "&8OpShop Editor");
+        }
         this.inventory = GuiUtils.createInventory(this, ROWS, title);
 
         Material filler = Material.matchMaterial(plugin.getPluginConfig().getFillerMaterial());
@@ -157,12 +189,33 @@ public class ShopEditorGui implements GuiHolder {
 
     // ============================== LIST VIEW ================================
 
+    /** Get items filtered by the current editor mode (normal vs guild). */
+    private List<ShopItem> getFilteredItems() {
+        if (guildEditorId != null) {
+            return shopManager.getAllItems().stream()
+                .filter(i -> i.isGuildRestricted() && i.getAllowedGuildIds().contains(guildEditorId))
+                .toList();
+        } else {
+            return shopManager.getAllItems().stream()
+                .filter(i -> !i.isGuildRestricted())
+                .toList();
+        }
+    }
+
     private void buildListView(Material filler) {
         GuiUtils.fill(inventory, filler);
 
-        // Filter items by current page, show at their assigned slot position
-        List<ShopItem> itemsOnPage = shopManager.getItemsOnPage(page);
-        int totalPages = shopManager.getItemCount() == 0 ? 1 : shopManager.getMaxPage() + 1;
+        List<ShopItem> allItems = getFilteredItems();
+        int totalItems = allItems.size();
+        int totalPages = totalItems == 0 ? 1
+            : allItems.stream().mapToInt(ShopItem::getPage).max().orElse(0) + 1;
+        if (page >= totalPages) page = totalPages - 1;
+        if (page < 0) page = 0;
+
+        List<ShopItem> itemsOnPage = allItems.stream()
+            .filter(i -> i.getPage() == page)
+            .sorted(java.util.Comparator.comparingInt(ShopItem::getSlot))
+            .toList();
 
         for (ShopItem item : itemsOnPage) {
             int slot = item.getSlot();
@@ -180,7 +233,7 @@ public class ShopEditorGui implements GuiHolder {
         }
         inventory.setItem(49, GuiUtils.makeItem(Material.PAPER,
             m("editor.page", "&ePage {page}/{total}", "{page}", String.valueOf(page + 1), "{total}", String.valueOf(totalPages)),
-            List.of(m("editor.total-items", "&7{count} total item(s)", "{count}", String.valueOf(shopManager.getItemCount())))));
+            List.of(m("editor.total-items", "&7{count} total item(s)", "{count}", String.valueOf(totalItems)))));
         inventory.setItem(50, GuiUtils.makeItem(Material.CLOCK,
             m("editor.reload", "&eReload from Database"),
             List.of(m("editor.reload-desc", "&7Reload all items from the database."))));
@@ -203,9 +256,15 @@ public class ShopEditorGui implements GuiHolder {
                 ? m("editor.delete-page-desc-empty", "&7Delete this empty page.")
                 : m("editor.delete-page-desc", "&7Move all items to later pages."),
                 m("editor.shift-confirm", "&7Shift+Click to confirm."))));
-        inventory.setItem(53, GuiUtils.makeItem(Material.BARRIER,
-            m("editor.close-editor", "&cClose"),
-            List.of(m("editor.close-desc", "&7Close the editor."))));
+        if (guildEditorId != null) {
+            inventory.setItem(53, GuiUtils.makeItem(Material.ARROW,
+                m("editor.back-to-guild-list", "&6← Back to Guild List"),
+                List.of(m("editor.back-to-guild-list-desc", "&7Return to guild selection."))));
+        } else {
+            inventory.setItem(53, GuiUtils.makeItem(Material.BARRIER,
+                m("editor.close-editor", "&cClose"),
+                List.of(m("editor.close-desc", "&7Close the editor."))));
+        }
     }
 
     /** Delete the current page — move items forward, then shift later pages down. */
@@ -224,7 +283,7 @@ public class ShopEditorGui implements GuiHolder {
             item.setPage(tempPage);
             item.setSlot(0);
             try { shopManager.saveItem(item); } catch (java.sql.SQLException e) {
-                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cDB error moving item " + item.getId()));
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + m("editor.db-error", "&cDB error moving item {id}", "{id}", item.getId())));
             }
         }
         // Pass 2: shift all pages after deleted down
@@ -242,7 +301,7 @@ public class ShopEditorGui implements GuiHolder {
         if (page > 0 && shopManager.getItemsOnPage(page).isEmpty()) page--;
         build();
         player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-            + "&aDeleted page &e" + (deletedPage + 1) + "&a. Items moved forward."));
+            + m("editor.delete-page-success", "&aDeleted page &e{page}&a. Items moved forward.", "{page}", String.valueOf(deletedPage + 1))));
     }
 
     /** Shift all items on pages >= fromPage by delta pages. */
@@ -283,10 +342,13 @@ public class ShopEditorGui implements GuiHolder {
         if (item.getPpBuyPrice() > 0 || item.getPpSellPrice() > 0)
             lore.add(GuiUtils.toComponent(Messages.colorize(m("editor.points-prices", "&7Points Buy:{buy} Sell:{sell}",
                 "{buy}", formatPrice(item.getPpBuyPrice()), "{sell}", formatPrice(item.getPpSellPrice())))));
-        if (item.getCustomCurrencyId() != null)
+        // Show all custom currency prices
+        for (var entry : item.getCustomCurrencyPrices().entrySet()) {
             lore.add(GuiUtils.toComponent(Messages.colorize(m("editor.custom-prices", "&7{currency} Buy:{buy} Sell:{sell}",
-                "{currency}", item.getCustomCurrencyId(),
-                "{buy}", formatPrice(item.getCustomBuyPrice()), "{sell}", formatPrice(item.getCustomSellPrice())))));
+                "{currency}", entry.getKey(),
+                "{buy}", formatPrice(entry.getValue().buyPrice()),
+                "{sell}", formatPrice(entry.getValue().sellPrice())))));
+        }
         lore.add(Component.empty());
         lore.add(GuiUtils.toComponent(Messages.colorize(m("editor.click-to-edit", "&eClick to edit"))));
 
@@ -300,20 +362,18 @@ public class ShopEditorGui implements GuiHolder {
     private void buildEditView(Material filler) {
         GuiUtils.fill(inventory, filler);
 
-        // ----- Item preview -----
-
-        // Slot 13 — Item preview (drop item here to replace)
+        // ---- Item preview (slot 13) ----
         ItemStack display = ItemSerializer.deserialize(editingItem.getDisplayItem());
         if (display != null && display.getType() != Material.AIR) {
             if (editingItem.isApplyPlaceholders()) {
                 display = com.ohtoai.opshop.item.PlaceholderReplacer.applyPreview(display, currentViewer);
             }
-            // Add hint lore + placeholder tips
             List<Component> previewLore = new ArrayList<>();
-            previewLore.add(GuiUtils.toComponent(Messages.colorize("&7Drop an item here to replace")));
+            previewLore.add(GuiUtils.toComponent(Messages.colorize(m("editor.drop-item-replace", "&7Drop an item here to replace"))));
             if (editingItem.isApplyPlaceholders()) {
                 previewLore.add(Component.empty());
-                previewLore.add(GuiUtils.toComponent(Messages.colorize("&e▸ Placeholder preview (as " + (currentViewer != null ? currentViewer.getName() : "?") + "):")));
+                previewLore.add(GuiUtils.toComponent(Messages.colorize(m("editor.placeholder-preview", "&e▸ Placeholder preview (as {player}):",
+                "{player}", currentViewer != null ? currentViewer.getName() : "?"))));
                 for (String ph : com.ohtoai.opshop.item.PlaceholderReplacer.getAvailablePlaceholders()) {
                     String resolved = com.ohtoai.opshop.item.PlaceholderReplacer.resolveSingle(ph, currentViewer);
                     previewLore.add(GuiUtils.toComponent(Messages.colorize("&7  " + resolved)));
@@ -323,88 +383,125 @@ public class ShopEditorGui implements GuiHolder {
             inventory.setItem(13, display);
         } else {
             inventory.setItem(13, GuiUtils.makeItem(Material.BARRIER,
-                "&cDrop Item Here",
-                List.of("&7Pick up an item from your inventory",
-                    "&7and click here to set it.")));
+                m("editor.drop-item-title", "&cDrop Item Here"),
+                List.of(m("editor.drop-item-lore-1", "&7Drop an item from your inventory"),
+                        m("editor.drop-item-lore-2", "&7onto this slot to set it."))));
         }
 
-        // ----- Row 2 (slots 18-26): 3-Currency Pricing -----
-        buildPriceSlot(19, Material.GOLD_INGOT, m("editor.vault-buy", "&eVault Buy"), editingItem.getVaultBuyPrice());
-        buildPriceSlot(20, Material.GOLD_NUGGET, m("editor.vault-sell", "&eVault Sell"), editingItem.getVaultSellPrice());
-        buildPriceSlot(22, Material.DIAMOND, m("editor.points-buy", "&ePoint Buy"), editingItem.getPpBuyPrice());
-        buildPriceSlot(23, Material.PRISMARINE_CRYSTALS, m("editor.points-sell", "&ePoint Sell"), editingItem.getPpSellPrice());
-        String customName = editingItem.getCustomCurrencyId() != null ? editingItem.getCustomCurrencyId() : "none";
-        inventory.setItem(25, GuiUtils.makeItem(Material.NETHER_STAR,
-            m("editor.custom-currency", "&eCustom: &f{id}", "{id}", customName),
-            List.of(m("editor.custom-currency-desc", "&7Click to select custom currency."))));
-        buildPriceSlot(33, Material.LIME_DYE, m("editor.custom-buy", "&eCustom Buy"), editingItem.getCustomBuyPrice());
-        buildPriceSlot(34, Material.RED_DYE, m("editor.custom-sell", "&eCustom Sell"), editingItem.getCustomSellPrice());
+        // ---- Row 1: Vault (slot 10) | ITEM (13) | Points (slot 16) ----
+        buildCurrencyIcon(10, "vault", Material.GOLD_INGOT,
+            editingItem.getVaultBuyPrice(), editingItem.getVaultSellPrice());
+        buildCurrencyIcon(16, "points", Material.DIAMOND,
+            editingItem.getPpBuyPrice(), editingItem.getPpSellPrice());
 
-        // ----- Row 3 (slots 27-35): toggles -----
+        // ---- Row 2 (slots 19-25): ALL custom currencies with ← → pagination ----
+        // Show all defined CUSTOM_ITEM currencies, not just item's enabled ones
+        List<com.ohtoai.opshop.config.PluginConfig.CurrencyDef> allCustomDefs =
+            currencyManager.getDefinitions().values().stream()
+                .filter(d -> "CUSTOM_ITEM".equalsIgnoreCase(d.type()))
+                .toList();
+
+        int CUSTOM_PER_PAGE = 5;
+        int[] CUSTOM_SLOTS = {20, 21, 22, 23, 24};
+        int totalCustomPages = allCustomDefs.isEmpty() ? 1
+            : (int) Math.ceil((double) allCustomDefs.size() / CUSTOM_PER_PAGE);
+        if (customCurrencyPage >= totalCustomPages) customCurrencyPage = totalCustomPages - 1;
+        if (customCurrencyPage < 0) customCurrencyPage = 0;
+
+        // Left arrow (19)
+        if (customCurrencyPage > 0) {
+            inventory.setItem(19, GuiUtils.makeItem(Material.ARROW,
+                m("editor.custom-prev", "&a← More"),
+                List.of(m("editor.page-num", "&7Page {p}/{t}",
+                    "{p}", String.valueOf(customCurrencyPage + 1), "{t}", String.valueOf(totalCustomPages)))));
+        }
+        // Right arrow (25)
+        if (customCurrencyPage < totalCustomPages - 1) {
+            inventory.setItem(25, GuiUtils.makeItem(Material.ARROW,
+                m("editor.custom-next", "&a→ More"),
+                List.of(m("editor.page-num", "&7Page {p}/{t}",
+                    "{p}", String.valueOf(customCurrencyPage + 2), "{t}", String.valueOf(totalCustomPages)))));
+        }
+
+        // Show all custom currency defs (enabled ones with prices, disabled ones grayed out)
+        int startIdx = customCurrencyPage * CUSTOM_PER_PAGE;
+        for (int i = 0; i < CUSTOM_PER_PAGE; i++) {
+            int idx = startIdx + i;
+            if (idx >= allCustomDefs.size()) break;
+            var def = allCustomDefs.get(idx);
+            String cid = def.id();
+            boolean enabled = editingItem.hasCustomCurrency(cid);
+            var cp = editingItem.getCustomCurrencyPrices().get(cid);
+            double cb = cp != null ? cp.buyPrice() : 0;
+            double cs = cp != null ? cp.sellPrice() : 0;
+            buildCustomDefIcon(CUSTOM_SLOTS[i], def, enabled, cb, cs);
+        }
+
+        // ---- Row 3 (27-35): empty ----
+
+        // ---- Row 4 (36-44): Toggles + Get Item + Log ----
         String on = m("editor.state-on", "&aON"), off = m("editor.state-off", "&cOFF");
-        String buyLabel = m("editor.buy-toggle", "&eBuy: {state}").replace("{state}", editingItem.isBuyEnabled() ? on : off);
-        String sellLabel = m("editor.sell-toggle", "&eSell: {state}").replace("{state}", editingItem.isSellEnabled() ? on : off);
-        String phLabel = m("editor.placeholders-toggle", "&ePlaceholders: {state}").replace("{state}", editingItem.isApplyPlaceholders() ? on : off);
-        String refLabel = m("editor.refund-limit-toggle", "&eRefund Limit: {state}").replace("{state}", editingItem.isRefundLimit() ? on : off);
         String toggleHint = m("editor.toggle-hint", "&7Click to toggle");
 
-        inventory.setItem(28, GuiUtils.makeItem(
+        // 36: Buy
+        String buyLabel = m("editor.buy-toggle", "&eBuy: {state}").replace("{state}", editingItem.isBuyEnabled() ? on : off);
+        inventory.setItem(36, GuiUtils.makeItem(
             editingItem.isBuyEnabled() ? Material.LIME_DYE : Material.GRAY_DYE, buyLabel, List.of(toggleHint)));
-        // Sell toggle: locked when placeholders or generateUniqueId are ON
+
+        // 37: Sell
         if (editingItem.isApplyPlaceholders()) {
-            inventory.setItem(29, GuiUtils.makeItem(Material.BARRIER,
+            inventory.setItem(37, GuiUtils.makeItem(Material.BARRIER,
                 m("editor.sell-locked", "&cSell: &4🔒 LOCKED"),
-                List.of(m("editor.sell-locked-desc", "&cDisabled while Placeholders is ON."),
-                    m("editor.sell-locked-desc2", "&7Turn off Placeholders to enable Sell."))));
-            inventory.setItem(31, GuiUtils.makeItem(Material.BARRIER,
-                m("editor.refund-locked", "&cRefund Limit: &4🔒 LOCKED"),
-                List.of(m("editor.refund-locked-desc", "&cDisabled while Placeholders is ON."),
-                    m("editor.refund-locked-desc2", "&7Turn off Placeholders to enable."))));
+                List.of(m("editor.sell-locked-desc", "&cDisabled while Placeholders is ON."))));
         } else if (editingItem.isGenerateUniqueId()) {
-            inventory.setItem(29, GuiUtils.makeItem(Material.BARRIER,
+            inventory.setItem(37, GuiUtils.makeItem(Material.BARRIER,
                 m("editor.generate-id-locked", "&cSell: &4🔒 Trace ID LOCKED"),
-                List.of(m("editor.generate-id-locked-desc", "&cDisabled while Trace ID is ON."),
-                    m("editor.generate-id-locked-desc2", "&7Turn off Trace ID to enable Sell."))));
-            inventory.setItem(31, GuiUtils.makeItem(Material.BARRIER,
-                m("editor.refund-locked", "&cRefund Limit: &4🔒 LOCKED"),
-                List.of(m("editor.refund-locked-desc", "&cDisabled while Trace ID is ON."),
-                    m("editor.refund-locked-desc2", "&7Turn off Trace ID to enable."))));
+                List.of(m("editor.generate-id-locked-desc", "&cDisabled while Trace ID is ON."))));
         } else {
-            inventory.setItem(29, GuiUtils.makeItem(
+            String sellLabel = m("editor.sell-toggle", "&eSell: {state}").replace("{state}", editingItem.isSellEnabled() ? on : off);
+            inventory.setItem(37, GuiUtils.makeItem(
                 editingItem.isSellEnabled() ? Material.LIME_DYE : Material.GRAY_DYE, sellLabel, List.of(toggleHint)));
-            inventory.setItem(31, GuiUtils.makeItem(
-                editingItem.isRefundLimit() ? Material.LIME_DYE : Material.GRAY_DYE, refLabel,
-                List.of(m("editor.refund-desc-1", "&7When ON: selling this item back"),
-                    m("editor.refund-desc-2", "&7restores purchase quota"),
-                    m("editor.refund-desc-3", "&7(global total_sold & player limit)."),
-                    toggleHint)));
         }
-        inventory.setItem(30, GuiUtils.makeItem(
+
+        // 38: Placeholders
+        String phLabel = m("editor.placeholders-toggle", "&ePlaceholders: {state}").replace("{state}", editingItem.isApplyPlaceholders() ? on : off);
+        inventory.setItem(38, GuiUtils.makeItem(
             editingItem.isApplyPlaceholders() ? Material.LIME_DYE : Material.GRAY_DYE, phLabel, List.of(toggleHint)));
 
-        // Generate Unique ID toggle (slot 32)
+        // 39: Refund Limit
+        if (editingItem.isApplyPlaceholders()) {
+            inventory.setItem(39, GuiUtils.makeItem(Material.BARRIER,
+                m("editor.refund-locked", "&cRefund Limit: &4🔒 LOCKED"),
+                List.of(m("editor.refund-locked-desc", "&cDisabled while Placeholders is ON."))));
+        } else if (editingItem.isGenerateUniqueId()) {
+            inventory.setItem(39, GuiUtils.makeItem(Material.BARRIER,
+                m("editor.refund-locked", "&cRefund Limit: &4🔒 LOCKED"),
+                List.of(m("editor.refund-locked-desc", "&cDisabled while Trace ID is ON."))));
+        } else {
+            String refLabel = m("editor.refund-limit-toggle", "&eRefund Limit: {state}").replace("{state}", editingItem.isRefundLimit() ? on : off);
+            inventory.setItem(39, GuiUtils.makeItem(
+                editingItem.isRefundLimit() ? Material.LIME_DYE : Material.GRAY_DYE, refLabel,
+                List.of(m("editor.refund-desc-1", "&7When ON: selling back restores purchase quota"), toggleHint)));
+        }
+
+        // 40: Trace ID
         String genIdLabel = m("editor.generate-id-toggle", "&eTrace ID: {state}")
             .replace("{state}", editingItem.isGenerateUniqueId() ? on : off);
-        inventory.setItem(32, GuiUtils.makeItem(
+        inventory.setItem(40, GuiUtils.makeItem(
             editingItem.isGenerateUniqueId() ? Material.LIME_DYE : Material.GRAY_DYE, genIdLabel,
-            List.of(
-                m("editor.generate-id-desc-1", "&7When ON: each purchase gets a unique trace ID"),
-                m("editor.generate-id-desc-2", "&7ID is written into item data for tracing."),
-                m("editor.generate-id-desc-3", "&7Only single purchase (x1), bulk buy disabled."),
-                toggleHint)));
+            List.of(m("editor.generate-id-desc-1", "&7Each purchase gets a unique traceable ID."), toggleHint)));
 
-        inventory.setItem(36, GuiUtils.makeItem(Material.CHEST,
+        // 42: Get Item
+        inventory.setItem(42, GuiUtils.makeItem(Material.CHEST,
             m("editor.get-item", "&6Get Item &7(Raw)"),
-            List.of(m("editor.get-item-desc-1", "&7Click to receive a copy of this item"),
-                m("editor.get-item-desc-2", "&7without placeholder replacement."),
-                m("editor.get-item-desc-3", "&7Shift+Click to get with placeholders applied."))));
-        inventory.setItem(37, GuiUtils.makeItem(Material.BOOK,
+            List.of(m("editor.get-item-desc-1", "&7Click to get a copy (raw)."),
+                m("editor.get-item-desc-3", "&7Shift+Click for placeholder-applied copy."))));
+        // 43: Transaction Log
+        inventory.setItem(43, GuiUtils.makeItem(Material.BOOK,
             m("editor.transaction-log", "&eTransaction Log"),
-            List.of(m("editor.transaction-log-desc-1", "&7View purchase/sell history"),
-                m("editor.transaction-log-desc-2", "&7for this item only."),
-                m("editor.transaction-log-desc-3", "&7Click to open."))));
+            List.of(m("editor.transaction-log-desc-1", "&7View purchase/sell history for this item."))));
 
-        // ----- Row 5 (slots 45-53): limits + actions -----
+        // ---- Row 5: Limits + actions ----
         String limitHints = m("editor.limit-controls", "&7L+1 R-1 ShiftL+10 ShiftR-10 Q=∞");
         inventory.setItem(47, GuiUtils.makeItem(
             editingItem.getTotalLimit() >= 0 ? Material.REDSTONE : Material.GUNPOWDER,
@@ -425,12 +522,119 @@ public class ShopEditorGui implements GuiHolder {
         inventory.setItem(53, GuiUtils.makeItem(Material.ARROW, m("editor.back-to-list", "&6← Back to List"), List.of()));
     }
 
-    private void buildPriceSlot(int slot, Material mat, String name, double value) {
-        inventory.setItem(slot, GuiUtils.makeItem(mat, name,
-            List.of(m("editor.price-hint", "&7Current: &f{value}", "{value}", formatPrice(value)),
-                m("editor.price-controls-1", "&7L: +1 | R: -1"),
-                m("editor.price-controls-2", "&7Shift+L: +10 | Shift+R: -10"),
-                m("editor.price-controls-3", "&7Drop(Q): +100 | Ctrl+Q: -100"))));
+    // ---- Currency icon builder (single icon with price lore) ----
+
+    /** Build a currency icon showing buy/sell prices. key=="vault"|"points" for fixed currencies, or customCurrencyId. */
+    private void buildCurrencyIcon(int slot, String key, Material fallbackMat, double buy, double sell) {
+        ItemStack icon;
+        String displayName;
+
+        if ("vault".equals(key)) {
+            icon = new ItemStack(Material.GOLD_INGOT);
+            displayName = m("editor.vault-currency", "&eVault Money");
+        } else if ("points".equals(key)) {
+            icon = new ItemStack(Material.DIAMOND);
+            displayName = m("editor.points-currency", "&ePlayer Points");
+        } else {
+            // Custom currency: use provider's display item
+            displayName = key;
+            var provider = currencyManager.getProvider(key);
+            if (provider.isPresent() && provider.get().getDisplayItem() != null) {
+                icon = provider.get().getDisplayItem().clone();
+            } else {
+                var def = currencyManager.getDefinition(key);
+                Material mat = fallbackMat != null ? fallbackMat : Material.NETHER_STAR;
+                if (def != null && def.customMaterial() != null && !def.customMaterial().isEmpty()) {
+                    Material m = Material.matchMaterial(def.customMaterial());
+                    if (m != null) mat = m;
+                }
+                icon = new ItemStack(mat);
+                if (def != null && def.customModelData() > 0) {
+                    var meta = icon.getItemMeta();
+                    meta.setCustomModelData(def.customModelData());
+                    icon.setItemMeta(meta);
+                }
+                if (def != null) displayName = def.displayName();
+            }
+        }
+
+        var meta = icon.getItemMeta();
+        List<Component> lore = meta.hasLore() ? new ArrayList<>(meta.lore()) : new ArrayList<>();
+        lore.add(Component.empty());
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.currency-buy", "&aBuy: &f{price}", "{price}", formatPrice(buy)))));
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.currency-sell", "&cSell: &f{price}", "{price}", formatPrice(sell)))));
+        lore.add(Component.empty());
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.currency-click-buy", "&7Left-click: edit &aBuy &7price"))));
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.currency-click-sell", "&7Right-click: edit &cSell &7price"))));
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.currency-click-both", "&7Drop(Q): edit &eBoth &7prices"))));
+        meta.lore(lore);
+        meta.displayName(GuiUtils.toComponent(Messages.colorize("&f" + displayName)));
+        icon.setItemMeta(meta);
+        inventory.setItem(slot, icon);
+    }
+
+    /** Build an icon for a custom currency definition — enabled=full color, disabled=grayed out. */
+    private void buildCustomDefIcon(int slot, com.ohtoai.opshop.config.PluginConfig.CurrencyDef def,
+                                    boolean enabled, double buy, double sell) {
+        String cid = def.id();
+        ItemStack icon;
+        String displayName = def.displayName();
+
+        // Try provider's display item first
+        var provider = currencyManager.getProvider(cid);
+        if (provider.isPresent() && provider.get().getDisplayItem() != null) {
+            icon = provider.get().getDisplayItem().clone();
+        } else {
+            Material mat = Material.NETHER_STAR;
+            if (def.customMaterial() != null && !def.customMaterial().isEmpty()) {
+                Material m = Material.matchMaterial(def.customMaterial());
+                if (m != null) mat = m;
+            }
+            icon = new ItemStack(mat);
+            if (def.customModelData() > 0) {
+                var meta = icon.getItemMeta();
+                meta.setCustomModelData(def.customModelData());
+                icon.setItemMeta(meta);
+            }
+        }
+
+        var meta = icon.getItemMeta();
+        List<Component> lore = meta.hasLore() ? new ArrayList<>(meta.lore()) : new ArrayList<>();
+        lore.add(Component.empty());
+
+        if (enabled) {
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.currency-buy", "&aBuy: &f{price}", "{price}", formatPrice(buy)))));
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.currency-sell", "&cSell: &f{price}", "{price}", formatPrice(sell)))));
+            lore.add(Component.empty());
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.currency-click-buy", "&7Left-click: edit &aBuy &7price"))));
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.currency-click-sell", "&7Right-click: edit &cSell &7price"))));
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.currency-click-both", "&7Drop(Q): edit &eBoth &7prices"))));
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.currency-click-disable", "&7Ctrl+Q: disable"))));
+            meta.displayName(GuiUtils.toComponent(Messages.colorize("&f" + displayName)));
+        } else {
+            // Disabled — grayed out
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.custom-disabled", "&7❌ Not enabled for this item"))));
+            lore.add(Component.empty());
+            lore.add(GuiUtils.toComponent(Messages.colorize(
+                m("editor.custom-click-enable", "&eLeft-click: enable this currency"))));
+            meta.displayName(GuiUtils.toComponent(Messages.colorize("&8" + displayName)));
+        }
+
+        meta.lore(lore);
+        icon.setItemMeta(meta);
+        inventory.setItem(slot, icon);
     }
 
     // ============================ CLICK HANDLING =============================
@@ -487,7 +691,7 @@ public class ShopEditorGui implements GuiHolder {
             shopManager.loadFromConfig(plugin.getPluginConfig());
             build();
             player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&aItems reloaded from database."));
+                plugin.getMessages().getPrefix() + m("editor.reload-success-msg", "&aItems reloaded from database.")));
             return;
         }
 
@@ -496,7 +700,7 @@ public class ShopEditorGui implements GuiHolder {
             shiftPagesFrom(page, 1);
             page++; // follow the content that moved right
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&aInserted blank page before page &e" + (page + 1)));
+                + m("editor.insert-before-success", "&aInserted blank page before page &e{page}", "{page}", String.valueOf(page + 1))));
             build();
             return;
         }
@@ -506,7 +710,7 @@ public class ShopEditorGui implements GuiHolder {
             shiftPagesFrom(page + 1, 1);
             page++; // go to the new blank page
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&aInserted blank page after page &e" + (page + 1)));
+                + m("editor.insert-after-success", "&aInserted blank page after page &e{page}", "{page}", String.valueOf(page + 1))));
             build();
             return;
         }
@@ -517,14 +721,19 @@ public class ShopEditorGui implements GuiHolder {
                 deleteCurrentPage(player);
             } else {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + "&cShift+Click the Delete Page button to confirm."));
+                    + m("editor.shift-confirm", "&cShift+Click the Delete Page button to confirm.")));
             }
             return;
         }
 
-        // Close
+        // Close / Back to guild list
         if (slot == 53) {
-            player.closeInventory();
+            if (guildEditorId != null) {
+                player.closeInventory();
+                new com.ohtoai.opshop.gui.GuildAdminListGui(plugin).open(player);
+            } else {
+                player.closeInventory();
+            }
             return;
         }
 
@@ -533,9 +742,11 @@ public class ShopEditorGui implements GuiHolder {
 
         // Click on an item in the grid
         if (slot >= 0 && slot < ITEMS_PER_PAGE) {
-            // Check if this slot already has an item
+            // Check if this slot already has an item (use filtered list)
+            List<ShopItem> pageItems = getFilteredItems().stream()
+                .filter(i -> i.getPage() == page).toList();
             ShopItem existing = null;
-            for (ShopItem item : shopManager.getItemsOnPage(page)) {
+            for (ShopItem item : pageItems) {
                 if (item.getSlot() == slot) { existing = item; break; }
             }
 
@@ -544,7 +755,7 @@ public class ShopEditorGui implements GuiHolder {
             if (cursor != null && cursor.getType() != Material.AIR) {
                 if (existing != null) {
                     player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                        + "&cSlot already occupied! Drop on an empty slot to add."));
+                        + m("editor.slot-occupied", "&cSlot already occupied! Drop on an empty slot to add.")));
                 } else {
                     addItemFromDrop(player, cursor, slot);
                     player.setItemOnCursor(null);
@@ -586,15 +797,23 @@ public class ShopEditorGui implements GuiHolder {
         newItem.setBuyEnabled(true);
         newItem.setSellEnabled(true);
         currencyManager.applyGlobalDefaults(newItem);
+        if (guildEditorId != null) {
+            newItem.getAllowedGuildIds().add(guildEditorId);
+            newItem.setGuildRestrictionEnabled(true);
+        }
 
         try {
             shopManager.saveItem(newItem);
+            if (guildEditorId != null) {
+                shopManager.saveItemGuilds(newItem.getId(), newItem.getAllowedGuildIds());
+            }
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&aCreated: &e" + id + " &7on page " + (page + 1) + " slot " + slot));
+                + m("editor.item-created-msg", "&aCreated: &e{id} &7on page {page} slot {slot}",
+                    "{id}", id, "{page}", String.valueOf(page + 1), "{slot}", String.valueOf(slot))));
             build();
         } catch (java.sql.SQLException e) {
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cFailed to create item!"));
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + m("editor.create-failed", "&cFailed to create item!")));
         }
     }
 
@@ -604,14 +823,152 @@ public class ShopEditorGui implements GuiHolder {
             shopManager.deleteItem(item.getId());
             player.playSound(player.getLocation(), Sound.ENTITY_ITEM_BREAK, 0.5f, 1.0f);
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&cDeleted: &e" + item.getId()));
+                + m("editor.item-deleted-msg", "&cDeleted: &e{id}", "{id}", item.getId())));
             build();
         } catch (java.sql.SQLException e) {
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cFailed to delete!"));
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + m("editor.delete-failed", "&cFailed to delete!")));
         }
     }
 
-    public boolean isAnvilOpen() { return anvilOpen; }
+    public boolean isAnvilOpen() { return anvilOpen || anvilPriceMode; }
+
+    /** Handle anvil close for price input mode — parse the typed value and apply. */
+    private void handlePriceAnvilClose(Player player, Inventory closedInv) {
+        anvilPriceMode = false;
+        int slot = anvilPriceSlot;
+        String currencyId = anvilPriceCurrencyId;
+        boolean both = anvilPriceBoth;
+        boolean isSell = anvilPriceIsSell;  // save before reset
+
+        // Reset state immediately
+        anvilPriceSlot = -1;
+        anvilPriceCurrencyId = null;
+        anvilPriceBoth = false;
+        anvilPriceIsSell = false;
+
+        // Read the typed text from slot 2 (anvil result slot) BEFORE clearing
+        ItemStack result = closedInv.getItem(2);
+        String input = null;
+        if (result != null && result.hasItemMeta() && result.getItemMeta().hasDisplayName()) {
+            input = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
+                .legacySection().serialize(result.getItemMeta().displayName()).trim();
+        }
+
+        // Clear anvil to prevent the input paper from being returned to player
+        closedInv.clear();
+
+        // If player pressed ESC (no rename text typed), just reopen editor
+        if (input == null || input.isEmpty()) {
+            scheduleEditorReopen(player);
+            return;
+        }
+
+        if (both) {
+            // Parse "buy sell" format
+            String[] parts = input.split("\\s+");
+            double buy = 0, sellVal = 0;
+            try {
+                if (parts.length >= 1) buy = Double.parseDouble(parts[0]);
+                if (parts.length >= 2) sellVal = Double.parseDouble(parts[1]);
+                else sellVal = buy;
+            } catch (NumberFormatException e) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&cInvalid number format! Use: buy sell (e.g. 100 50)"));
+                scheduleEditorReopen(player);
+                return;
+            }
+            buy = Math.max(0, buy);
+            sellVal = Math.max(0, sellVal);
+            if (currencyId != null) {
+                editingItem.setCustomCurrencyPrice(currencyId, buy, sellVal);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&aSet " + currencyId + ": Buy=" + formatPrice(buy) + " Sell=" + formatPrice(sellVal)));
+            } else if (slot == 10) {
+                editingItem.setVaultBuyPrice(buy);
+                editingItem.setVaultSellPrice(sellVal);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&aVault: Buy=" + formatPrice(buy) + " Sell=" + formatPrice(sellVal)));
+            } else if (slot == 16) {
+                editingItem.setPpBuyPrice(buy);
+                editingItem.setPpSellPrice(sellVal);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&aPoints: Buy=" + formatPrice(buy) + " Sell=" + formatPrice(sellVal)));
+            }
+        } else {
+            double value;
+            try {
+                value = Double.parseDouble(input);
+            } catch (NumberFormatException e) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + "&cInvalid number! Type a price like: 100.5"));
+                scheduleEditorReopen(player);
+                return;
+            }
+            value = Math.max(0, value);
+            if (slot == 10) {
+                if (isSell) editingItem.setVaultSellPrice(value);
+                else editingItem.setVaultBuyPrice(value);
+            } else if (slot == 16) {
+                if (isSell) editingItem.setPpSellPrice(value);
+                else editingItem.setPpBuyPrice(value);
+            } else if (currencyId != null) {
+                var cur = editingItem.getCustomCurrencyPrices().get(currencyId);
+                double curBuy = cur != null ? cur.buyPrice() : 0;
+                double curSell = cur != null ? cur.sellPrice() : 0;
+                if (isSell) editingItem.setCustomCurrencyPrice(currencyId, curBuy, value);
+                else editingItem.setCustomCurrencyPrice(currencyId, value, curSell);
+            }
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + "&aPrice set to: &f" + formatPrice(value)));
+        }
+
+        scheduleEditorReopen(player);
+    }
+
+    /** Schedule editor reopen on next tick — avoids InventoryCloseEvent re-entrancy bug. */
+    private void scheduleEditorReopen(Player player) {
+        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
+            build();
+            player.openInventory(inventory);
+        });
+    }
+
+    /**
+     * Public entry point for external GUIs to trigger price anvil input.
+     * Called by CustomCurrencyPriceGui's "Set Both" button.
+     */
+    public void triggerPriceAnvil(Player player, String currencyId) {
+        var prices = editingItem.getCustomCurrencyPrices().get(currencyId);
+        double buy = prices != null ? prices.buyPrice() : 0;
+        double sell = prices != null ? prices.sellPrice() : 0;
+        String current = formatPrice(buy) + " " + formatPrice(sell);
+        openPriceAnvil(player, -1, currencyId, true, current);
+    }
+
+    /** Open an anvil GUI for typing a price value directly. */
+    void openPriceAnvil(Player player, int slot, String currencyId, boolean both, String currentValue) {
+        openPriceAnvil(player, slot, currencyId, both, currentValue, false);
+    }
+
+    void openPriceAnvil(Player player, int slot, String currencyId, boolean both, String currentValue, boolean isSell) {
+        this.anvilPriceMode = true;
+        this.anvilPriceSlot = slot;
+        this.anvilPriceCurrencyId = currencyId;
+        this.anvilPriceBoth = both;
+        this.anvilPriceIsSell = isSell;
+
+        // Build the anvil input item with current price as placeholder text
+        List<String> anvilLore = new ArrayList<>(both
+            ? List.of("&7Format: buy sell", "&7e.g. 100 50")
+            : List.of("&7Type new price"));
+        anvilLore.add("&8---");
+        anvilLore.add("&7Press &oESC &7to cancel");
+        ItemStack inputItem = GuiUtils.makeItem(Material.PAPER, currentValue, anvilLore);
+        org.bukkit.inventory.InventoryView anvilView = player.openAnvil(null, true);
+        if (anvilView != null) {
+            anvilView.setItem(0, inputItem);
+        }
+    }
 
     /** Handle anvil click — just mark that result was clicked, actual creation in handleAnvilClose. */
     public void handleAnvilClick(Player player, InventoryClickEvent event) {
@@ -619,8 +976,12 @@ public class ShopEditorGui implements GuiHolder {
         // We just let it happen and finalize on close.
     }
 
-    /** Handle anvil close — read slot 0's display name as the ID and create the item. */
+    /** Handle anvil close — dispatch to price-input or item-creation handler. */
     public void handleAnvilClose(Player player, Inventory closedInv) {
+        if (anvilPriceMode) {
+            handlePriceAnvilClose(player, closedInv);
+            return;
+        }
         if (!anvilOpen) return;
         anvilOpen = false;
 
@@ -645,13 +1006,13 @@ public class ShopEditorGui implements GuiHolder {
             pendingCursorItem = null;
             open(player);
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&7Item creation cancelled."));
+                + m("editor.item-cancelled-msg", "&7Item creation cancelled.")));
             return;
         }
 
         if (shopManager.getItem(id).isPresent()) {
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&cItem '" + id + "' already exists!"));
+                + m("editor.item-exists-msg", "&cItem '{id}' already exists!", "{id}", id)));
             pendingCursorItem = null;
             open(player);
             return;
@@ -665,9 +1026,16 @@ public class ShopEditorGui implements GuiHolder {
         newItem.setBuyEnabled(true);
         newItem.setSellEnabled(true);
         currencyManager.applyGlobalDefaults(newItem);
+        if (guildEditorId != null) {
+            newItem.getAllowedGuildIds().add(guildEditorId);
+            newItem.setGuildRestrictionEnabled(true);
+        }
 
         try {
             shopManager.saveItem(newItem);
+            if (guildEditorId != null) {
+                shopManager.saveItemGuilds(newItem.getId(), newItem.getAllowedGuildIds());
+            }
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                 + "&aCreated: &e" + id));
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
@@ -722,9 +1090,16 @@ public class ShopEditorGui implements GuiHolder {
         newItem.setBuyEnabled(true);
         newItem.setSellEnabled(true);
         currencyManager.applyGlobalDefaults(newItem);
+        if (guildEditorId != null) {
+            newItem.getAllowedGuildIds().add(guildEditorId);
+            newItem.setGuildRestrictionEnabled(true);
+        }
 
         try {
             shopManager.saveItem(newItem);
+            if (guildEditorId != null) {
+                shopManager.saveItemGuilds(newItem.getId(), newItem.getAllowedGuildIds());
+            }
             player.sendMessage(Messages.colorize(
                 plugin.getMessages().getPrefix() + "&aCreated new item: &e" + itemId));
             enterEditMode(player, newItem);
@@ -755,9 +1130,16 @@ public class ShopEditorGui implements GuiHolder {
         newItem.setBuyEnabled(true);
         newItem.setSellEnabled(true);
         currencyManager.applyGlobalDefaults(newItem);
+        if (guildEditorId != null) {
+            newItem.getAllowedGuildIds().add(guildEditorId);
+            newItem.setGuildRestrictionEnabled(true);
+        }
 
         try {
             shopManager.saveItem(newItem);
+            if (guildEditorId != null) {
+                shopManager.saveItemGuilds(newItem.getId(), newItem.getAllowedGuildIds());
+            }
             player.sendMessage(Messages.colorize(
                 plugin.getMessages().getPrefix() + "&aCreated new item: &e" + itemId));
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
@@ -773,57 +1155,13 @@ public class ShopEditorGui implements GuiHolder {
 
     private void handleEditClick(Player player, int slot, InventoryClickEvent event) {
 
-        // Slot 53 — Back to List
+        // ---- Navigation & actions ----
         if (slot == 53) {
-            exitEditMode();
+            if (guildEditorId != null) backToGuildList(player); else exitEditMode();
             return;
         }
-
-        // Slot 48 — Save
-        if (slot == 48) {
-            saveItem(player);
-            return;
-        }
-
-        // Slot 50 — Delete (with confirmation gate)
-        if (slot == 50) {
-            deleteItem(player);
-            return;
-        }
-
-        // Slot 49 — Revert to Global
-        if (slot == 49) {
-            // global defaults removed — prices are always custom now
-            deleteConfirmPending = false;
-            player.sendMessage(Messages.colorize(
-                plugin.getMessages().getPrefix() + "&aItem reverted to global defaults."));
-            build();
-            return;
-        }
-
-        // Slot 36 — Give raw item / placeholder-applied item
-        if (slot == 36) {
-            giveItemToPlayer(player, event.isShiftClick());
-            return;
-        }
-        // Slot 37 — View transaction history for this item
-        if (slot == 37) {
-            player.closeInventory();
-            new com.ohtoai.opshop.gui.TransactionLogGui(plugin, editingItemId).open(player);
-            return;
-        }
-
-        // Slot 47 — Total Limit (L+1 R-1 ShiftL+10 ShiftR-10 Q=unlimited)
-        if (slot == 47) {
-            adjustLimit(true, event);
-            return;
-        }
-
-        // Slot 51 — Player Limit
-        if (slot == 51) {
-            adjustLimit(false, event);
-            return;
-        }
+        if (slot == 48) { saveItem(player); return; }
+        if (slot == 50) { deleteItem(player); return; }
 
         // Slot 13 — Drop item to replace
         if (slot == 13) {
@@ -840,89 +1178,206 @@ public class ShopEditorGui implements GuiHolder {
             return;
         }
 
-        // Slot 28 — Toggle Buy Enabled
-        if (slot == 28) { editingItem.setBuyEnabled(!editingItem.isBuyEnabled()); build(); return; }
-        // Slot 29 — Toggle Sell Enabled (locked when placeholders or generateUniqueId ON)
-        if (slot == 29) {
+        // ---- Currency icons (Row 1: 10=Vault, 16=Points; Row 2: 20-24=Custom) ----
+        if (slot == 10) { handleCurrencyClick(player, slot, event, "vault"); return; }
+        if (slot == 16) { handleCurrencyClick(player, slot, event, "points"); return; }
+        if (slot >= 20 && slot <= 24) { handleCustomDefClick(player, slot, event); return; }
+
+        // ---- Custom currency pagination (counts ALL defined CUSTOM_ITEM currencies) ----
+        if (slot == 19 && customCurrencyPage > 0) { customCurrencyPage--; build(); return; }
+        if (slot == 25) {
+            long totalDefs = currencyManager.getDefinitions().values().stream()
+                .filter(d -> "CUSTOM_ITEM".equalsIgnoreCase(d.type())).count();
+            int totalPages = totalDefs == 0 ? 1 : (int) Math.ceil((double) totalDefs / 5);
+            if (customCurrencyPage < totalPages - 1) { customCurrencyPage++; build(); }
+            return;
+        }
+
+        // ---- Row 4: Toggles + Get Item + Log ----
+        if (slot == 36) { editingItem.setBuyEnabled(!editingItem.isBuyEnabled()); build(); return; }
+        if (slot == 37) {
             if (editingItem.isApplyPlaceholders()) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                     + m("editor.sell-locked-desc", "&cSell is locked while Placeholders is enabled.")));
             } else if (editingItem.isGenerateUniqueId()) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                     + m("editor.generate-id-locked-desc", "&cSell is locked while Trace ID is enabled.")));
-            } else {
-                editingItem.setSellEnabled(!editingItem.isSellEnabled()); build();
-            }
+            } else { editingItem.setSellEnabled(!editingItem.isSellEnabled()); build(); }
             return;
         }
-        // Slot 30 — Toggle Apply Placeholders (also disables sell when ON)
-        if (slot == 30) {
+        if (slot == 38) {
             boolean on = !editingItem.isApplyPlaceholders();
             editingItem.setApplyPlaceholders(on);
             if (on) editingItem.setSellEnabled(false);
             build(); return;
         }
-        // Slot 31 — Toggle Refund Limit (locked when placeholders ON)
-        if (slot == 31) {
-            if (editingItem.isApplyPlaceholders()) {
+        if (slot == 39) {
+            if (editingItem.isApplyPlaceholders() || editingItem.isGenerateUniqueId()) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + m("editor.refund-locked-desc", "&cRefund Limit is locked while Placeholders is enabled.")));
-            } else {
-                editingItem.setRefundLimit(!editingItem.isRefundLimit()); build();
-            }
+                    + m("editor.refund-locked-desc", "&cRefund Limit is locked.")));
+            } else { editingItem.setRefundLimit(!editingItem.isRefundLimit()); build(); }
             return;
         }
-        // Slot 32 — Toggle Generate Unique ID (also disables sell when ON)
-        if (slot == 32) {
+        if (slot == 40) {
             boolean on = !editingItem.isGenerateUniqueId();
             editingItem.setGenerateUniqueId(on);
             if (on) editingItem.setSellEnabled(false);
             build(); return;
         }
+        if (slot == 42) { giveItemToPlayer(player, event.isShiftClick()); return; }
+        if (slot == 43) {
+            player.closeInventory();
+            new com.ohtoai.opshop.gui.TransactionLogGui(plugin, editingItemId).open(player);
+            return;
+        }
 
-        // Price slots: adjust by click
-        if (slot == 19) { editingItem.setVaultBuyPrice(adjustPrice(editingItem.getVaultBuyPrice(), event)); build(); return; }
-        if (slot == 20) { editingItem.setVaultSellPrice(adjustPrice(editingItem.getVaultSellPrice(), event)); build(); return; }
-        if (slot == 22) { editingItem.setPpBuyPrice(adjustPrice(editingItem.getPpBuyPrice(), event)); build(); return; }
-        if (slot == 23) { editingItem.setPpSellPrice(adjustPrice(editingItem.getPpSellPrice(), event)); build(); return; }
-        if (slot == 33) { editingItem.setCustomBuyPrice(adjustPrice(editingItem.getCustomBuyPrice(), event)); build(); return; }
-        if (slot == 34) { editingItem.setCustomSellPrice(adjustPrice(editingItem.getCustomSellPrice(), event)); build(); return; }
+        // ---- Row 5: Limits ----
+        if (slot == 47) { adjustLimit(true, event); return; }
+        if (slot == 51) { adjustLimit(false, event); return; }
+    }
 
-        // Slot 25 — Select custom currency (cycles: id1 → id2 → ... → none → id1)
-        if (slot == 25) {
-            List<String> customIds = currencyManager.getDefinitions().entrySet().stream()
-                .filter(e -> "CUSTOM_ITEM".equalsIgnoreCase(e.getValue().type()))
-                .map(Map.Entry::getKey).toList();
-            String cur = editingItem.getCustomCurrencyId();
-            String next;
-            if (cur == null && !customIds.isEmpty()) {
-                next = customIds.get(0);
-            } else if (cur != null) {
-                int idx = customIds.indexOf(cur);
-                if (idx < 0 || idx >= customIds.size() - 1) next = null;
-                else next = customIds.get(idx + 1);
-            } else {
-                next = null;
+    /**
+     * Handle click on a custom currency definition icon (slots 20-24).
+     * If enabled: edit prices. If disabled: left-click enables it.
+     */
+    private void handleCustomDefClick(Player player, int slot, InventoryClickEvent event) {
+        // Resolve which custom currency definition this slot maps to
+        var allDefs = currencyManager.getDefinitions().values().stream()
+            .filter(d -> "CUSTOM_ITEM".equalsIgnoreCase(d.type()))
+            .toList();
+        int idx = customCurrencyPage * 5 + (slot - 20);
+        if (idx < 0 || idx >= allDefs.size()) return;
+        var def = allDefs.get(idx);
+        String cid = def.id();
+        boolean enabled = editingItem.hasCustomCurrency(cid);
+
+        if (!enabled) {
+            // Disabled — left-click enables with default prices
+            if (event.isLeftClick() && !event.isShiftClick() && !event.isRightClick()) {
+                double defaultBuy = 1.0, defaultSell = 1.0;
+                for (var entry : currencyManager.getGlobalDefaults()) {
+                    if (cid.equals(entry.get("currency"))) {
+                        defaultBuy = ((Number) entry.getOrDefault("buy-price", 1.0)).doubleValue();
+                        defaultSell = ((Number) entry.getOrDefault("sell-price", 1.0)).doubleValue();
+                        break;
+                    }
+                }
+                editingItem.setCustomCurrencyPrice(cid, defaultBuy, defaultSell);
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + m("editor.currency-enabled-msg", "&aEnabled {currency}&r&a for this item.",
+                        "{currency}", def.displayName())));
+                build();
             }
-            editingItem.setCustomCurrencyId(next);
+            return;
+        }
+
+        // Enabled — same behavior as vault/points
+        var cp = editingItem.getCustomCurrencyPrices().get(cid);
+        double curBuy = cp != null ? cp.buyPrice() : 0;
+        double curSell = cp != null ? cp.sellPrice() : 0;
+        boolean left = event.isLeftClick();
+        boolean right = event.isRightClick();
+        boolean drop = event.getClick().name().contains("DROP");
+        boolean ctrl = event.getClick().name().contains("CONTROL");
+
+        // Ctrl+Q: disable (remove from item)
+        if (drop && ctrl) {
+            editingItem.removeCustomCurrencyPrice(cid);
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + "&aCustom currency: &e" + (next != null ? next : "none")));
+                + m("editor.currency-removed-msg", "&cRemoved {currency}&r&c from this item.",
+                    "{currency}", def.displayName())));
             build();
+            return;
+        }
+
+        // Q/Drop: edit both
+        if (drop) {
+            player.closeInventory();
+            String current = formatPrice(curBuy) + " " + formatPrice(curSell);
+            openPriceAnvil(player, slot, cid, true, current);
+            return;
+        }
+
+        // Right-click: edit sell
+        if (right) {
+            player.closeInventory();
+            openPriceAnvil(player, slot, cid, false, formatPrice(curSell), true);
+            return;
+        }
+
+        // Left-click: edit buy
+        if (left) {
+            player.closeInventory();
+            openPriceAnvil(player, slot, cid, false, formatPrice(curBuy), false);
             return;
         }
     }
 
-    private double adjustPrice(double current, InventoryClickEvent event) {
+    /**
+     * Handle click on a currency icon.
+     * @param key "vault", "points", or null (custom — resolved from slot position).
+     */
+    private void handleCurrencyClick(Player player, int slot, InventoryClickEvent event, String key) {
         boolean left = event.isLeftClick();
-        boolean shift = event.isShiftClick();
+        boolean right = event.isRightClick();
         boolean drop = event.getClick().name().contains("DROP");
         boolean ctrl = event.getClick().name().contains("CONTROL");
-        if (drop && ctrl) return Math.max(0, current - 100);
-        if (drop) return current + 100;
-        if (shift && left) return current + 10;
-        if (shift && !left) return Math.max(0, current - 10);
-        if (left) return current + 1;
-        return Math.max(0, current - 1);
+
+        // Resolve which currency and its current prices
+        String currencyId;
+        double curBuy, curSell;
+        if ("vault".equals(key)) {
+            currencyId = null;
+            curBuy = editingItem.getVaultBuyPrice();
+            curSell = editingItem.getVaultSellPrice();
+        } else if ("points".equals(key)) {
+            currencyId = null;
+            curBuy = editingItem.getPpBuyPrice();
+            curSell = editingItem.getPpSellPrice();
+        } else {
+            var customIds = new ArrayList<>(editingItem.getCustomCurrencyPrices().keySet());
+            int idx = customCurrencyPage * 5 + (slot - 20);
+            if (idx < 0 || idx >= customIds.size()) return;
+            currencyId = customIds.get(idx);
+            var cp = editingItem.getCustomCurrencyPrices().get(currencyId);
+            curBuy = cp != null ? cp.buyPrice() : 0;
+            curSell = cp != null ? cp.sellPrice() : 0;
+        }
+
+        // Ctrl+Q: disable (custom currency only — remove from item)
+        if (drop && ctrl && currencyId != null) {
+            editingItem.removeCustomCurrencyPrice(currencyId);
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.currency-removed-msg", "&cRemoved {currency}&r&c from this item.",
+                    "{currency}", currencyId)));
+            build();
+            return;
+        }
+
+        // Q/Drop: edit both prices
+        if (drop) {
+            player.closeInventory();
+            String current = formatPrice(curBuy) + " " + formatPrice(curSell);
+            openPriceAnvil(player, slot, currencyId, true, current);
+            return;
+        }
+
+        // Right-click: edit sell price
+        if (right) {
+            player.closeInventory();
+            openPriceAnvil(player, slot, currencyId, false, formatPrice(curSell), true);
+            return;
+        }
+
+        // Left-click: edit buy price
+        if (left) {
+            player.closeInventory();
+            openPriceAnvil(player, slot, currencyId, false, formatPrice(curBuy), false);
+            return;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -936,6 +1391,12 @@ public class ShopEditorGui implements GuiHolder {
         this.deleteConfirmPending = false;
         this.page = 0;
         build();
+    }
+
+    /** Back to guild admin list from guild editor edit view (slot 53). */
+    private void backToGuildList(Player player) {
+        player.closeInventory();
+        new com.ohtoai.opshop.gui.GuildAdminListGui(plugin).open(player);
     }
 
     private void saveItem(Player player) {
@@ -1034,7 +1495,7 @@ public class ShopEditorGui implements GuiHolder {
         if (editingItem == null) return;
         ItemStack item = ItemSerializer.deserialize(editingItem.getDisplayItem());
         if (item == null || item.getType() == Material.AIR) {
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + "&cItem data is empty!"));
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix() + m("editor.item-data-empty", "&cItem data is empty!")));
             return;
         }
         if (withPlaceholders) {

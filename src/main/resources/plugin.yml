@@ -7,7 +7,7 @@ author: OhtoAi
 prefix: OShop
 
 depend: [Vault]
-softdepend: [PlayerPoints, PlaceholderAPI]
+softdepend: [PlayerPoints, PlaceholderAPI, GuildPlugin]
 
 commands:
   oshop:

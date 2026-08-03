@@ -38,6 +38,7 @@ public class ItemDetailGui implements GuiHolder {
     private String selectedCurrency; // For multi-currency items, which currency is selected
     private Player currentPlayer;
     private int maxStackSize = 64;
+    private int currencyPage = 0; // pagination for currency row when > 7 currencies
 
     private static final int ROWS = 5;
 
@@ -45,7 +46,7 @@ public class ItemDetailGui implements GuiHolder {
     // Row 0: Buy1(slot 2) | Sell1(slot 6)
     // Row 1: Buy8(slot 11) | Sell8(slot 15)
     // Row 2: Buy64(slot 20) | Sell64(slot 24)
-    // Row 3: currencies(27-35)
+    // Row 3: currencies (27=←, 28-34=buttons, 35=→)
     // Row 4: nav
 
     private static final int SLOT_ITEM = 13;  // item preview row 1 center
@@ -58,7 +59,10 @@ public class ItemDetailGui implements GuiHolder {
     private static final int SLOT_SELL_8  = 15;
     private static final int SLOT_SELL_64 = 24;
 
-    private static final int[] CURRENCY_SLOTS = {29, 31, 33};
+    private static final int[] CURRENCY_SLOTS = {28, 29, 30, 31, 32, 33, 34};
+    private static final int CURRENCY_PAGE_SIZE = 7;
+    private static final int SLOT_CURRENCY_PREV = 27;
+    private static final int SLOT_CURRENCY_NEXT = 35;
 
     private static final int SLOT_BACK  = 39;
     private static final int SLOT_CLOSE = 41;
@@ -79,6 +83,7 @@ public class ItemDetailGui implements GuiHolder {
 
     public void open(Player player) {
         this.currentPlayer = player;
+        this.currencyPage = 0;
         // Auto-select first available currency (buy first, then sell)
         List<PriceConfig> buyPrices = shopManager.getBuyPrices(shopItem);
         List<PriceConfig> sellPrices = shopManager.getSellPrices(shopItem);
@@ -99,7 +104,7 @@ public class ItemDetailGui implements GuiHolder {
 
     private void buildInventory(boolean reopen) {
         String title = "&8" + shopItem.getId();
-        if (title.length() > 32) title = "&8Item Details";
+        if (title.length() > 32) title = m("gui.item-detail-title", "&8Item Details");
         this.inventory = GuiUtils.createInventory(this, ROWS, title);
 
         Material filler = Material.matchMaterial(plugin.getPluginConfig().getFillerMaterial());
@@ -146,7 +151,7 @@ public class ItemDetailGui implements GuiHolder {
             }
         }
 
-        // --- Currency buttons (row 3) ---
+        // --- Currency buttons (row 3) — paginated when > 7 currencies ---
         List<PriceConfig> allPrices = new ArrayList<>();
         allPrices.addAll(buyPrices);
         for (PriceConfig pc : sellPrices) {
@@ -155,7 +160,31 @@ public class ItemDetailGui implements GuiHolder {
             }
         }
 
-        for (int i = 0; i < allPrices.size() && i < CURRENCY_SLOTS.length; i++) {
+        int totalCurrencyPages = Math.max(1, (int) Math.ceil((double) allPrices.size() / CURRENCY_PAGE_SIZE));
+        if (currencyPage >= totalCurrencyPages) currencyPage = totalCurrencyPages - 1;
+        if (currencyPage < 0) currencyPage = 0;
+
+        int start = currencyPage * CURRENCY_PAGE_SIZE;
+        int end = Math.min(start + CURRENCY_PAGE_SIZE, allPrices.size());
+
+        // Previous page arrow (slot 27)
+        if (currencyPage > 0) {
+            inventory.setItem(SLOT_CURRENCY_PREV, GuiUtils.makeItem(Material.ARROW,
+                m("gui.prev-page", "&a← More"),
+                List.of(m("gui.page-num", "&7Page {p}/{t}",
+                    "{p}", String.valueOf(currencyPage + 1), "{t}", String.valueOf(totalCurrencyPages)))));
+        }
+
+        // Next page arrow (slot 35)
+        if (currencyPage < totalCurrencyPages - 1) {
+            inventory.setItem(SLOT_CURRENCY_NEXT, GuiUtils.makeItem(Material.ARROW,
+                m("gui.next-page", "&a→ More"),
+                List.of(m("gui.page-num", "&7Page {p}/{t}",
+                    "{p}", String.valueOf(currencyPage + 2), "{t}", String.valueOf(totalCurrencyPages)))));
+        }
+
+        for (int i = start; i < end; i++) {
+            int slotIdx = i - start;
             PriceConfig pc = allPrices.get(i);
             var providerOpt = currencyManager.getProvider(pc.getCurrencyId());
             if (providerOpt.isEmpty()) continue;
@@ -173,11 +202,17 @@ public class ItemDetailGui implements GuiHolder {
 
             // Currency icon: Vault=Gold Ingot, PlayerPoints=Paper, Custom=actual item
             ItemStack icon;
-            if (provider.getType() == CurrencyType.CUSTOM_ITEM) {
-                var ccp = (com.ohtoai.opshop.currency.provider.CustomItemCurrencyProvider) provider;
-                icon = ccp.createCurrencyItem(1);
+            if (provider.getType() == CurrencyType.CUSTOM_ITEM && provider.getDisplayItem() != null) {
+                // Use the full original item (preserves enchantments, flags, glow, etc.)
+                icon = provider.getDisplayItem().clone();
                 var m = icon.getItemMeta();
-                m.lore(lore.stream().map(l -> GuiUtils.toComponent(Messages.colorize(l))).toList());
+                List<net.kyori.adventure.text.Component> combinedLore = m.hasLore()
+                    ? new ArrayList<>(m.lore()) : new ArrayList<>();
+                combinedLore.add(net.kyori.adventure.text.Component.empty());
+                for (String line : lore) {
+                    combinedLore.add(GuiUtils.toComponent(Messages.colorize(line)));
+                }
+                m.lore(combinedLore);
                 if (isSelected) {
                     m.addEnchant(org.bukkit.enchantments.Enchantment.UNBREAKING, 1, true);
                     m.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
@@ -197,7 +232,7 @@ public class ItemDetailGui implements GuiHolder {
                     icon.setItemMeta(m);
                 }
             }
-            inventory.setItem(CURRENCY_SLOTS[i], icon);
+            inventory.setItem(CURRENCY_SLOTS[slotIdx], icon);
         }
 
         // --- Navigation (row 4) ---
@@ -257,7 +292,7 @@ public class ItemDetailGui implements GuiHolder {
             return;
         }
 
-        // Currency selection
+        // Currency page navigation
         List<PriceConfig> allPrices = new ArrayList<>();
         allPrices.addAll(shopManager.getBuyPrices(shopItem));
         for (PriceConfig pc : shopManager.getSellPrices(shopItem)) {
@@ -265,11 +300,32 @@ public class ItemDetailGui implements GuiHolder {
                 allPrices.add(pc);
             }
         }
-        for (int i = 0; i < allPrices.size() && i < CURRENCY_SLOTS.length; i++) {
+        int totalCurrencyPages = Math.max(1, (int) Math.ceil((double) allPrices.size() / CURRENCY_PAGE_SIZE));
+
+        // Previous currency page
+        if (slot == SLOT_CURRENCY_PREV && currencyPage > 0) {
+            currencyPage--;
+            player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.3f, 1.0f);
+            buildInventory(true);
+            return;
+        }
+        // Next currency page
+        if (slot == SLOT_CURRENCY_NEXT && currencyPage < totalCurrencyPages - 1) {
+            currencyPage++;
+            player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.3f, 1.0f);
+            buildInventory(true);
+            return;
+        }
+
+        // Currency selection (with page offset)
+        for (int i = 0; i < CURRENCY_SLOTS.length; i++) {
             if (CURRENCY_SLOTS[i] == slot) {
-                selectedCurrency = allPrices.get(i).getCurrencyId();
-                player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.3f, 1.0f);
-                buildInventory(true);
+                int idx = currencyPage * CURRENCY_PAGE_SIZE + i;
+                if (idx >= 0 && idx < allPrices.size()) {
+                    selectedCurrency = allPrices.get(idx).getCurrencyId();
+                    player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.3f, 1.0f);
+                    buildInventory(true);
+                }
                 return;
             }
         }
@@ -327,9 +383,9 @@ public class ItemDetailGui implements GuiHolder {
             case OUT_OF_STOCK ->
                 player.sendMessage(prefix + plugin.getMessages().get("out-of-stock"));
             case TOTAL_LIMIT_REACHED ->
-                player.sendMessage(prefix + Messages.colorize("&cThis item has reached its total purchase limit!"));
+                player.sendMessage(prefix + plugin.getMessages().get("total-limit-reached"));
             case PLAYER_LIMIT_REACHED ->
-                player.sendMessage(prefix + Messages.colorize("&cYou have reached your purchase limit for this item!"));
+                player.sendMessage(prefix + plugin.getMessages().get("player-limit-reached"));
             case COOLDOWN_ACTIVE ->
                 player.sendMessage(prefix + plugin.getMessages().get("cooldown-active"));
             case CURRENCY_UNAVAILABLE ->

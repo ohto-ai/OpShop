@@ -67,7 +67,7 @@ public class PurchaseGui implements GuiHolder {
     }
 
     private void buildInventory(Player player) {
-        String title = "&8Buy: " + shopItem.getId();
+        String title = m("gui.purchase.title", "&8Buy: {id}", "{id}", shopItem.getId());
         this.inventory = GuiUtils.createInventory(this, ROWS, title);
 
         Material filler = Material.matchMaterial(plugin.getPluginConfig().getFillerMaterial());
@@ -205,17 +205,27 @@ public class PurchaseGui implements GuiHolder {
                 player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("inventory-full"));
             case NO_PERMISSION ->
                 player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("no-permission"));
+            case GUILD_LOCKED -> {
+                player.sendMessage(plugin.getMessages().getPrefix()
+                    + Messages.colorize(plugin.getMessages().get("guild-locked",
+                        "&c&lThis item is only available to specific guild members!")));
+                player.playSound(player.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.5f);
+            }
             case COOLDOWN_ACTIVE -> {
                 long remaining = shopManager.getCooldownRemaining(player.getUniqueId(), shopItem);
                 player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().format("cooldown-active",
                     "{time}", formatCooldown(remaining)));
             }
+            case TOTAL_LIMIT_REACHED ->
+                player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("total-limit-reached"));
+            case PLAYER_LIMIT_REACHED ->
+                player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("player-limit-reached"));
             case OUT_OF_STOCK ->
                 player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("out-of-stock"));
             case CURRENCY_UNAVAILABLE ->
                 player.sendMessage(plugin.getMessages().getPrefix() + plugin.getMessages().get("currency-disabled"));
             default -> player.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + "&cTransaction failed."));
+                + m("editor.transaction-failed", "&cTransaction failed.")));
         }
     }
 

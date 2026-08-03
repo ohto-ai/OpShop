@@ -124,6 +124,15 @@ public class CustomItemCurrencyProvider implements CurrencyProvider {
         return Arrays.equals(templateSerialized, ItemSerializer.serialize(normalized));
     }
 
+    /**
+     * Returns the full original currency item (with enchantments, flags, glow, etc.
+     * preserved). Used by GUIs to display the currency icon faithfully.
+     */
+    @Override
+    public ItemStack getDisplayItem() {
+        return createCurrencyItem(1);
+    }
+
     @Override
     public String getId() {
         return def.id();

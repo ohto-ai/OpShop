@@ -2,6 +2,7 @@ package com.ohtoai.opshop.currency;
 
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 public interface CurrencyProvider {
 
@@ -30,4 +31,11 @@ public interface CurrencyProvider {
 
     /** Format amount for display, e.g. "50 Gold Coins" */
     String format(double amount);
+
+    /**
+     * Get a display ItemStack representing this currency.
+     * For custom-item currencies, returns the full original item (with enchantments,
+     * flags, glow, etc. preserved). Returns null for non-item currencies (Vault, etc.).
+     */
+    default ItemStack getDisplayItem() { return null; }
 }

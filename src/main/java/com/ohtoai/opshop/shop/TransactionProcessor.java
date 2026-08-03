@@ -50,6 +50,7 @@ public class TransactionProcessor {
         INSUFFICIENT_ITEMS,
         INVENTORY_FULL,
         NO_PERMISSION,
+        GUILD_LOCKED,
         TOTAL_LIMIT_REACHED,
         PLAYER_LIMIT_REACHED,
         COOLDOWN_ACTIVE,
@@ -77,6 +78,28 @@ public class TransactionProcessor {
         if (item.getPermissionRequired() != null && !item.getPermissionRequired().isEmpty()) {
             if (!player.hasPermission(item.getPermissionRequired())) {
                 return Result.NO_PERMISSION;
+            }
+        }
+
+        // Guild whitelist check
+        if (item.isGuildRestricted()) {
+            var hook = plugin.getHookManager();
+            if (!hook.isGuildEnabled()) {
+                plugin.getLogger().warning("Guild check failed for " + item.getId()
+                    + " — GuildPlugin not available.");
+                return Result.GUILD_LOCKED;
+            }
+            var playerGuild = hook.getGuildBridge().getPlayerGuild(player.getUniqueId());
+            if (playerGuild == null) {
+                plugin.getLogger().info(player.getName() + " tried to buy guild-restricted item "
+                    + item.getId() + " but is not in any guild.");
+                return Result.GUILD_LOCKED;
+            }
+            if (!item.getAllowedGuildIds().contains(playerGuild.id())) {
+                plugin.getLogger().info(player.getName() + " tried to buy guild-restricted item "
+                    + item.getId() + " (guild " + playerGuild.name()
+                    + " #" + playerGuild.id() + " not in whitelist).");
+                return Result.GUILD_LOCKED;
             }
         }
 
@@ -242,7 +265,9 @@ public class TransactionProcessor {
             "{price}", priceFormatted,
             "{currency}", provider.getDisplayName());
         if (traceId >= 0) {
-            msg += " &7[Trace ID: &f" + traceId + "&7]";
+            msg += plugin.getMessages().get("editor.trace-id-suffix",
+                " &7[Trace ID: &f{id}&7]",
+                "{id}", String.valueOf(traceId));
         }
         player.sendMessage(plugin.getMessages().get("prefix") + msg);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.2f);

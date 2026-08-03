@@ -2,9 +2,14 @@ package com.ohtoai.opshop.shop;
 
 /**
  * Represents a single product in the shop.
- * Pricing: three fixed currency slots — Vault, PlayerPoints, one custom currency.
+ * Pricing: Vault, PlayerPoints, and multiple custom currencies.
  */
 public class ShopItem {
+
+    /**
+     * Buy and sell price pair for a custom currency on this item.
+     */
+    public record CustomCurrencyPrice(double buyPrice, double sellPrice) {}
 
     private final String id;
     private int page;     // 0-indexed page number
@@ -22,12 +27,19 @@ public class ShopItem {
     private int playerLimit = -1;
     private boolean refundLimit = false;
     private boolean generateUniqueId = false;
+    private final java.util.Set<Integer> allowedGuildIds = new java.util.HashSet<>();
+    private boolean guildRestrictionEnabled = false;
 
-    // Three-currency pricing
+    // Fixed currency pricing (Vault + PlayerPoints)
     private double vaultBuyPrice = 0;
     private double vaultSellPrice = 0;
     private double ppBuyPrice = 0;
     private double ppSellPrice = 0;
+
+    // Multi custom currency pricing (currencyId → price pair)
+    private final java.util.LinkedHashMap<String, CustomCurrencyPrice> customCurrencyPrices = new java.util.LinkedHashMap<>();
+
+    // Legacy single custom currency fields (kept for DB migration, bridged to map)
     private String customCurrencyId; // null = none
     private double customBuyPrice = 0;
     private double customSellPrice = 0;
@@ -60,6 +72,9 @@ public class ShopItem {
     public int getPlayerLimit() { return playerLimit; }
     public boolean isRefundLimit() { return refundLimit; }
     public boolean isGenerateUniqueId() { return generateUniqueId; }
+    public java.util.Set<Integer> getAllowedGuildIds() { return allowedGuildIds; }
+    public boolean isGuildRestricted() { return guildRestrictionEnabled && !allowedGuildIds.isEmpty(); }
+    public boolean isGuildRestrictionEnabled() { return guildRestrictionEnabled; }
 
     public double getVaultBuyPrice() { return vaultBuyPrice; }
     public double getVaultSellPrice() { return vaultSellPrice; }
@@ -68,6 +83,37 @@ public class ShopItem {
     public String getCustomCurrencyId() { return customCurrencyId; }
     public double getCustomBuyPrice() { return customBuyPrice; }
     public double getCustomSellPrice() { return customSellPrice; }
+
+    // --- Multi custom currency accessors ---
+
+    /** Get all custom currency prices (immutable copy). */
+    public java.util.Map<String, CustomCurrencyPrice> getCustomCurrencyPrices() {
+        return java.util.Collections.unmodifiableMap(customCurrencyPrices);
+    }
+
+    /** Set buy & sell price for a custom currency. */
+    public void setCustomCurrencyPrice(String currencyId, double buyPrice, double sellPrice) {
+        customCurrencyPrices.put(currencyId, new CustomCurrencyPrice(buyPrice, sellPrice));
+        touch();
+    }
+
+    /** Remove a custom currency from this item. */
+    public void removeCustomCurrencyPrice(String currencyId) {
+        customCurrencyPrices.remove(currencyId);
+        touch();
+    }
+
+    /** Check whether this item uses a specific custom currency (has buy or sell price > 0). */
+    public boolean hasCustomCurrency(String currencyId) {
+        return customCurrencyPrices.containsKey(currencyId);
+    }
+
+    /** Replace all custom currency prices at once (used during DB load). */
+    public void setCustomCurrencyPrices(java.util.Map<String, CustomCurrencyPrice> prices) {
+        customCurrencyPrices.clear();
+        if (prices != null) customCurrencyPrices.putAll(prices);
+    }
+
     public long getCreatedAt() { return createdAt; }
     public long getUpdatedAt() { return updatedAt; }
 
@@ -88,6 +134,11 @@ public class ShopItem {
     public void setPlayerLimit(int v) { this.playerLimit = v; touch(); }
     public void setRefundLimit(boolean v) { this.refundLimit = v; touch(); }
     public void setGenerateUniqueId(boolean v) { this.generateUniqueId = v; touch(); }
+    public void setAllowedGuildIds(java.util.Set<Integer> ids) {
+        allowedGuildIds.clear();
+        if (ids != null) allowedGuildIds.addAll(ids);
+    }
+    public void setGuildRestrictionEnabled(boolean v) { this.guildRestrictionEnabled = v; touch(); }
 
     public void setVaultBuyPrice(double v) { this.vaultBuyPrice = v; touch(); }
     public void setVaultSellPrice(double v) { this.vaultSellPrice = v; touch(); }

@@ -10,10 +10,12 @@ public class HookManager {
     private VaultHook vaultHook;
     private PlayerPointsHook playerPointsHook;
     private PlaceholderApiHook placeholderApiHook;
+    private GuildPluginBridge guildBridge;
 
     private boolean vaultEnabled;
     private boolean playerPointsEnabled;
     private boolean placeholderApiEnabled;
+    private boolean guildEnabled;
 
     public HookManager(OpShopPlugin plugin) {
         this.plugin = plugin;
@@ -52,6 +54,11 @@ public class HookManager {
         } else {
             plugin.getLogger().info("PlaceholderAPI not found — placeholder support limited.");
         }
+
+        // GuildPlugin
+        this.guildBridge = new GuildPluginBridge();
+        this.guildBridge.detect();
+        this.guildEnabled = guildBridge.isReady();
     }
 
     public void shutdown() {
@@ -61,8 +68,10 @@ public class HookManager {
     public boolean isVaultEnabled() { return vaultEnabled; }
     public boolean isPlayerPointsEnabled() { return playerPointsEnabled; }
     public boolean isPlaceholderApiEnabled() { return placeholderApiEnabled; }
+    public boolean isGuildEnabled() { return guildEnabled; }
 
     public VaultHook getVaultHook() { return vaultHook; }
     public PlayerPointsHook getPlayerPointsHook() { return playerPointsHook; }
     public PlaceholderApiHook getPlaceholderApiHook() { return placeholderApiHook; }
+    public GuildPluginBridge getGuildBridge() { return guildBridge; }
 }

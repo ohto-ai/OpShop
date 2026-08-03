@@ -1,6 +1,7 @@
 package com.ohtoai.opshop.item;
 
 import com.ohtoai.opshop.OpShopPlugin;
+import com.ohtoai.opshop.config.Messages;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
@@ -13,6 +14,9 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Replaces placeholders in item display name and lore.
@@ -35,6 +39,10 @@ import java.util.List;
  *   <li>{@code %server_online%} — online player count</li>
  *   <li>{@code %server_max%} — max player slots</li>
  *   <li>{@code %generated_id%} — trace ID from item PDC (empty if not present)</li>
+ *   <li>{@code %buyer_guild_name%} — buyer's own guild name (empty if not in a guild)</li>
+ *   <li>{@code %buyer_guild_tag%} — buyer's own guild tag (empty if not in a guild)</li>
+ *   <li>{@code %guild_name%} — shop guild name (the guild whose shop is being viewed)</li>
+ *   <li>{@code %guild_tag%} — shop guild tag (the guild whose shop is being viewed)</li>
  * </ul>
  * If PlaceholderAPI is present, all {@code %papi_xxx%} placeholders are also resolved.
  */
@@ -42,7 +50,28 @@ public final class PlaceholderReplacer {
 
     private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacySection();
 
+    // Per-player guild shop context: UUID -> [guildName, guildTag]
+    private static final Map<UUID, String[]> guildShopContext = new ConcurrentHashMap<>();
+
     private PlaceholderReplacer() {}
+
+    // --- Guild shop context (set by ShopMainGui) ---
+
+    /**
+     * Set the guild shop context for a player. Called when the player opens
+     * a guild-specific shop view. The context is used to resolve
+     * {@code %guild_name%} and {@code %guild_tag%} placeholders.
+     */
+    public static void setGuildContext(UUID playerId, String guildName, String guildTag) {
+        if (guildName != null) {
+            guildShopContext.put(playerId, new String[]{guildName, guildTag});
+        }
+    }
+
+    /** Clear the guild shop context for a player (normal shop view). */
+    public static void clearGuildContext(UUID playerId) {
+        guildShopContext.remove(playerId);
+    }
 
     // --- Public API ---
 
@@ -75,7 +104,11 @@ public final class PlaceholderReplacer {
             "%player_gamemode%",
             "%server_online%",
             "%server_max%",
-            "%generated_id%"
+            "%generated_id%",
+            "%buyer_guild_name%",
+            "%buyer_guild_tag%",
+            "%guild_name%",
+            "%guild_tag%"
         );
     }
 
@@ -83,7 +116,9 @@ public final class PlaceholderReplacer {
     public static String resolveSingle(String placeholder, Player player) {
         // Create a dummy component containing just the placeholder, resolve it, extract value
         Component dummy = Component.text(placeholder);
-        Component resolved = replaceBuiltins(dummy, player, player.getName(), player.getUniqueId().toString(), "");
+        Component resolved = replaceBuiltins(dummy, player, player.getName(),
+            player.getUniqueId().toString(), "", Component.empty(), Component.empty(),
+            Component.empty(), Component.empty());
         String plain = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
             .plainText().serialize(resolved);
         if (plain.equals(placeholder)) return placeholder + " → &7(n/a)";
@@ -100,6 +135,31 @@ public final class PlaceholderReplacer {
         String playerName = player.getName();
         String playerUuid = player.getUniqueId().toString();
 
+        // Resolve buyer's own guild for %buyer_guild_name% / %buyer_guild_tag%
+        Component buyerGuildNameComp = Component.empty();
+        Component buyerGuildTagComp = Component.empty();
+        var hook = OpShopPlugin.getInstance().getHookManager();
+        if (hook.isGuildEnabled()) {
+            var gi = hook.getGuildBridge().getPlayerGuild(player.getUniqueId());
+            if (gi != null) {
+                String rawName = gi.name() != null ? gi.name() : "";
+                String rawTag = gi.tag() != null ? gi.tag() : "";
+                buyerGuildNameComp = LEGACY.deserialize(Messages.colorize(rawName));
+                buyerGuildTagComp = LEGACY.deserialize(Messages.colorize(rawTag));
+            }
+        }
+
+        // Resolve shop guild context for %guild_name% / %guild_tag%
+        Component shopGuildNameComp = Component.empty();
+        Component shopGuildTagComp = Component.empty();
+        String[] ctx = guildShopContext.get(player.getUniqueId());
+        if (ctx != null) {
+            String rawShopName = ctx[0] != null ? ctx[0] : "";
+            String rawShopTag = ctx[1] != null ? ctx[1] : "";
+            shopGuildNameComp = LEGACY.deserialize(Messages.colorize(rawShopName));
+            shopGuildTagComp = LEGACY.deserialize(Messages.colorize(rawShopTag));
+        }
+
         // Read trace ID from item PDC for %generated_id% placeholder
         String generatedId = "";
         if (meta.getPersistentDataContainer().has(
@@ -112,12 +172,18 @@ public final class PlaceholderReplacer {
         }
 
         if (meta.hasDisplayName()) {
-            meta.displayName(replaceBuiltins(meta.displayName(), player, playerName, playerUuid, generatedId));
+            meta.displayName(replaceBuiltins(meta.displayName(), player, playerName,
+                playerUuid, generatedId,
+                buyerGuildNameComp, buyerGuildTagComp,
+                shopGuildNameComp, shopGuildTagComp));
         }
         if (meta.hasLore()) {
             List<Component> newLore = new ArrayList<>();
             for (Component line : meta.lore()) {
-                newLore.add(replaceBuiltins(line, player, playerName, playerUuid, generatedId));
+                newLore.add(replaceBuiltins(line, player, playerName,
+                    playerUuid, generatedId,
+                    buyerGuildNameComp, buyerGuildTagComp,
+                    shopGuildNameComp, shopGuildTagComp));
             }
             meta.lore(newLore);
         }
@@ -132,7 +198,9 @@ public final class PlaceholderReplacer {
      */
     private static Component replaceBuiltins(Component c, Player player,
                                              String playerName, String playerUuid,
-                                             String generatedId) {
+                                             String generatedId,
+                                             Component buyerGuildName, Component buyerGuildTag,
+                                             Component shopGuildName, Component shopGuildTag) {
         Component result = c;
 
         // --- Player identity ---
@@ -172,6 +240,18 @@ public final class PlaceholderReplacer {
         // --- Generated trace ID (reads from item PDC, empty if not present) ---
         result = result.replaceText(b -> b.matchLiteral("%generated_id%")
             .replacement(generatedId));
+
+        // --- Buyer's own guild info (empty if not in a guild) ---
+        result = result.replaceText(b -> b.matchLiteral("%buyer_guild_name%")
+            .replacement(buyerGuildName));
+        result = result.replaceText(b -> b.matchLiteral("%buyer_guild_tag%")
+            .replacement(buyerGuildTag));
+
+        // --- Shop guild info (the guild whose shop is being viewed; empty in normal shop) ---
+        result = result.replaceText(b -> b.matchLiteral("%guild_name%")
+            .replacement(shopGuildName));
+        result = result.replaceText(b -> b.matchLiteral("%guild_tag%")
+            .replacement(shopGuildTag));
 
         return result;
     }
