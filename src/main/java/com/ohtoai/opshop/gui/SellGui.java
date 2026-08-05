@@ -132,7 +132,8 @@ public class SellGui implements GuiHolder {
                 if (providerOpt.isEmpty()) continue;
 
                 CurrencyProvider provider = providerOpt.get();
-                String currencyName = provider.getDisplayName();
+                String currencyId = pc.getCurrencyId();
+                String currencyName = currencyManager.getDisplayName(currencyId);
 
                 List<String> lore = new ArrayList<>();
                 lore.add(m("gui.sell.you-have", "&7You have: &f{count} &7items", "{count}", String.valueOf(playerHas)));

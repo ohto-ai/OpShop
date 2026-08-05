@@ -194,7 +194,7 @@ public class ItemDetailGui implements GuiHolder {
             boolean isSelected = pc.getCurrencyId().equals(selectedCurrency);
 
             List<String> lore = new ArrayList<>();
-            lore.add(m("gui.purchase.balance", "&7Balance: &f{balance}", "{balance}", provider.format(balance)));
+            lore.add(m("gui.purchase.balance", "&7Balance: &f{balance}", "{balance}", currencyManager.format(pc.getCurrencyId(), balance)));
             if (pc.canBuy()) lore.add(m("gui.buy-each", "&aBuy: {price} each", "{price}", formatPrice(pc.getBuyPrice())));
             if (pc.canSell()) lore.add(m("gui.sell-each", "&6Sell: {price} each", "{price}", formatPrice(pc.getSellPrice())));
             lore.add("");

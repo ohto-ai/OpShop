@@ -107,7 +107,8 @@ public class PurchaseGui implements GuiHolder {
                 if (providerOpt.isEmpty()) continue;
 
                 CurrencyProvider provider = providerOpt.get();
-                String currencyName = provider.getDisplayName();
+                String currencyId = pc.getCurrencyId();
+                String currencyName = currencyManager.getDisplayName(currencyId);
                 double balance = provider.getBalance(player);
                 boolean canAfford = balance >= total;
 
@@ -115,13 +116,13 @@ public class PurchaseGui implements GuiHolder {
                 lore.add(m("gui.purchase.price-per", "&7Price per item: &f{price} {currency}", "{price}", formatPrice(pc.getBuyPrice()), "{currency}", currencyName));
                 lore.add(m("gui.purchase.total", "&7Total: &f{price} {currency}", "{price}", formatPrice(total), "{currency}", currencyName));
                 lore.add("");
-                lore.add(m("gui.purchase.balance", "&7Your balance: &f{balance}", "{balance}", provider.format(balance)));
+                lore.add(m("gui.purchase.balance", "&7Your balance: &f{balance}", "{balance}", currencyManager.format(currencyId, balance)));
                 lore.add("");
                 if (canAfford) {
                     lore.add(m("gui.purchase.click-to-purchase", "&a&lClick to purchase!"));
                 } else {
                     lore.add(m("gui.purchase.not-enough", "&cNot enough {currency}!", "{currency}", currencyName));
-                    lore.add(m("gui.purchase.need-more", "&7You need {amount} &7more", "{amount}", provider.format(total - balance)));
+                    lore.add(m("gui.purchase.need-more", "&7You need {amount} &7more", "{amount}", currencyManager.format(currencyId, total - balance)));
                 }
                 inventory.setItem(CURRENCY_SLOTS[i], GuiUtils.makeItem(
                     canAfford ? Material.LIME_WOOL : Material.RED_WOOL,
@@ -194,7 +195,7 @@ public class PurchaseGui implements GuiHolder {
                     .filter(p -> p.getCurrencyId().equals(currencyId)).findFirst().orElse(null);
                 double needed = pc != null ? pc.getBuyPrice() * quantity : 0;
                 String msg = plugin.getMessages().format("not-enough-currency",
-                    "{currency}", provider.map(CurrencyProvider::getDisplayName).orElse(currencyId),
+                    "{currency}", currencyManager.getDisplayName(currencyId),
                     "{amount}", formatPrice(needed),
                     "{balance}", formatPrice(balance));
                 player.sendMessage(plugin.getMessages().getPrefix() + msg);

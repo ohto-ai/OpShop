@@ -1096,7 +1096,9 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     yield Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
                 }
                 if (args.length == 5 && (args[2].equals("give") || args[2].equals("take"))) {
-                    yield plugin.getCurrencyManager().getAvailableCurrencyIds();
+                    yield plugin.getCurrencyManager().getAvailableCurrencyIds().stream()
+                        .map(OpShopCommand::quoteIfNeeded)
+                        .collect(Collectors.toList());
                 }
                 if (args.length == 4 && args[2].equals("add")) {
                     yield getHeldItemNameSuggestion(sender);
@@ -1106,12 +1108,14 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     yield plugin.getCurrencyManager().getAllProviders().stream()
                         .filter(p -> p.getType() != com.ohtoai.opshop.currency.CurrencyType.CUSTOM_ITEM)
                         .map(com.ohtoai.opshop.currency.CurrencyProvider::getId)
+                        .map(OpShopCommand::quoteIfNeeded)
                         .collect(Collectors.toList());
                 }
                 if (args.length == 4 && args[2].equals("delete")) {
                     yield plugin.getCurrencyManager().getDefinitions().entrySet().stream()
                         .filter(e -> "CUSTOM_ITEM".equalsIgnoreCase(e.getValue().type()))
                         .map(Map.Entry::getKey)
+                        .map(OpShopCommand::quoteIfNeeded)
                         .collect(Collectors.toList());
                 }
                 yield List.of();

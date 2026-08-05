@@ -263,7 +263,7 @@ public class TransactionProcessor {
 
         // Success feedback
         String productName = getProductName(product);
-        String priceFormatted = provider.format(totalCost);
+        String priceFormatted = currencyManager.format(currencyId, totalCost);
         String msg = plugin.getMessages().format("purchase-success",
             "{amount}", String.valueOf(quantity),
             "{item}", productName,
@@ -394,7 +394,7 @@ public class TransactionProcessor {
 
         // Success feedback
         String productName = getProductName(product);
-        String priceFormatted = providerOpt.get().format(totalEarned);
+        String priceFormatted = currencyManager.format(currencyId, totalEarned);
         String msg = plugin.getMessages().format("sell-success",
             "{amount}", String.valueOf(quantity),
             "{item}", productName,

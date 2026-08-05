@@ -279,6 +279,23 @@ public class CurrencyManager {
     }
 
     /**
+     * Format an amount with locale-aware currency name.
+     * For Vault, delegates to Vault's own formatter. For other types,
+     * uses the locale-aware display name.
+     */
+    public String format(String currencyId, double amount) {
+        var provider = providers.get(currencyId);
+        if (provider == null) return String.valueOf((long) amount);
+        // Vault has its own economy formatting (e.g., "$1,234.56")
+        if (provider.getType() == CurrencyType.VAULT) {
+            return provider.format(amount);
+        }
+        int count = (int) Math.ceil(amount);
+        String name = (count == 1) ? getDisplaySingular(currencyId) : getDisplayName(currencyId);
+        return count + " " + name;
+    }
+
+    /**
      * Update global default for a currency. Adds if not present, updates if exists.
      */
     public void setGlobalDefault(String currencyId, double buyPrice, double sellPrice) {
