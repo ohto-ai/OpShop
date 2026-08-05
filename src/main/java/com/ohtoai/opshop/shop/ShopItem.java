@@ -29,6 +29,7 @@ public class ShopItem {
     private boolean generateUniqueId = false;
     private final java.util.Set<Integer> allowedGuildIds = new java.util.HashSet<>();
     private boolean guildRestrictionEnabled = false;
+    private boolean broadcastOnTrade = false;
 
     // Fixed currency pricing (Vault + PlayerPoints)
     private double vaultBuyPrice = 0;
@@ -81,6 +82,7 @@ public class ShopItem {
     public java.util.Set<Integer> getAllowedGuildIds() { return allowedGuildIds; }
     public boolean isGuildRestricted() { return guildRestrictionEnabled && !allowedGuildIds.isEmpty(); }
     public boolean isGuildRestrictionEnabled() { return guildRestrictionEnabled; }
+    public boolean isBroadcastOnTrade() { return broadcastOnTrade; }
 
     public double getVaultBuyPrice() { return vaultBuyPrice; }
     public double getVaultSellPrice() { return vaultSellPrice; }
@@ -145,6 +147,7 @@ public class ShopItem {
         if (ids != null) allowedGuildIds.addAll(ids);
     }
     public void setGuildRestrictionEnabled(boolean v) { this.guildRestrictionEnabled = v; touch(); }
+    public void setBroadcastOnTrade(boolean v) { this.broadcastOnTrade = v; touch(); }
 
     public void setVaultBuyPrice(double v) { this.vaultBuyPrice = v; touch(); }
     public void setVaultSellPrice(double v) { this.vaultSellPrice = v; touch(); }

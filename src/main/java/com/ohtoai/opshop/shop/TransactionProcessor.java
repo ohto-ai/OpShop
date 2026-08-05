@@ -277,6 +277,22 @@ public class TransactionProcessor {
         player.sendMessage(plugin.getMessages().get("prefix") + msg);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.2f);
 
+        // Console log
+        plugin.getLogger().info("[BUY] " + player.getName() + " bought " + quantity + "x "
+            + item.getId() + " for " + priceFormatted + " " + currencyManager.getDisplayName(currencyId)
+            + (traceId >= 0 ? " [Trace ID: " + traceId + "]" : ""));
+
+        // Broadcast if enabled
+        if (item.isBroadcastOnTrade()) {
+            String broadcastMsg = plugin.getMessages().format("broadcast-buy",
+                "{player}", player.getName(),
+                "{amount}", String.valueOf(quantity),
+                "{item}", productName,
+                "{price}", priceFormatted,
+                "{currency}", currencyManager.getDisplayName(currencyId));
+            org.bukkit.Bukkit.broadcast(Messages.toComponent(Messages.colorize(broadcastMsg)));
+        }
+
         return Result.SUCCESS;
     }
 
@@ -386,6 +402,21 @@ public class TransactionProcessor {
             "{currency}", currencyManager.getDisplayName(currencyId));
         player.sendMessage(plugin.getMessages().get("prefix") + msg);
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.0f);
+
+        // Console log
+        plugin.getLogger().info("[SELL] " + player.getName() + " sold " + quantity + "x "
+            + item.getId() + " for " + priceFormatted + " " + currencyManager.getDisplayName(currencyId));
+
+        // Broadcast if enabled
+        if (item.isBroadcastOnTrade()) {
+            String broadcastMsg = plugin.getMessages().format("broadcast-sell",
+                "{player}", player.getName(),
+                "{amount}", String.valueOf(quantity),
+                "{item}", productName,
+                "{price}", priceFormatted,
+                "{currency}", currencyManager.getDisplayName(currencyId));
+            org.bukkit.Bukkit.broadcast(Messages.toComponent(Messages.colorize(broadcastMsg)));
+        }
 
         return Result.SUCCESS;
     }

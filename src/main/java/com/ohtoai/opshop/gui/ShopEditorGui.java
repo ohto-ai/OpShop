@@ -503,6 +503,14 @@ public class ShopEditorGui implements GuiHolder {
             editingItem.isGenerateUniqueId() ? Material.LIME_DYE : Material.GRAY_DYE, genIdLabel,
             List.of(m("editor.generate-id-desc-1", "&7Each purchase gets a unique traceable ID."), toggleHint)));
 
+        // 41: Broadcast On Trade
+        String broadcastLabel = m("editor.broadcast-toggle", "&eBroadcast: {state}")
+            .replace("{state}", editingItem.isBroadcastOnTrade() ? on : off);
+        inventory.setItem(41, GuiUtils.makeItem(
+            editingItem.isBroadcastOnTrade() ? Material.LIME_DYE : Material.GRAY_DYE, broadcastLabel,
+            List.of(m("editor.broadcast-desc-1", "&7When ON: sends a server-wide broadcast"),
+                m("editor.broadcast-desc-2", "&7every time this item is bought or sold."), toggleHint)));
+
         // 42: Get Item
         inventory.setItem(42, GuiUtils.makeItem(Material.CHEST,
             m("editor.get-item", "&6Get Item &7(Raw)"),
@@ -585,6 +593,8 @@ public class ShopEditorGui implements GuiHolder {
             m("editor.currency-click-sell", "&7Right-click: edit &cSell &7price"))));
         lore.add(GuiUtils.toComponent(Messages.colorize(
             m("editor.currency-click-both", "&7Drop(Q): edit &eBoth &7prices"))));
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.currency-click-disable-vault-points", "&7Ctrl+Q: disable"))));
         meta.lore(lore);
         meta.displayName(GuiUtils.toComponent(Messages.colorize("&f" + displayName)));
         icon.setItemMeta(meta);
@@ -1245,6 +1255,7 @@ public class ShopEditorGui implements GuiHolder {
             if (on) editingItem.setSellEnabled(false);
             build(); return;
         }
+        if (slot == 41) { editingItem.setBroadcastOnTrade(!editingItem.isBroadcastOnTrade()); build(); return; }
         if (slot == 42) { giveItemToPlayer(player, event.isShiftClick()); return; }
         if (slot == 43) {
             player.closeInventory();
@@ -1376,13 +1387,27 @@ public class ShopEditorGui implements GuiHolder {
             curSell = cp != null ? cp.sellPrice() : 0;
         }
 
-        // Ctrl+Q: disable (custom currency only — remove from item)
-        if (drop && ctrl && currencyId != null) {
-            editingItem.removeCustomCurrencyPrice(currencyId);
-            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
-            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                + m("editor.currency-removed-msg", "&cRemoved {currency}&r&c from this item.",
-                    "{currency}", currencyId)));
+        // Ctrl+Q: disable (reset prices to 0 for vault/points; remove custom currency)
+        if (drop && ctrl) {
+            if (currencyId != null) {
+                editingItem.removeCustomCurrencyPrice(currencyId);
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + m("editor.currency-removed-msg", "&cRemoved {currency}&r&c from this item.",
+                        "{currency}", currencyId)));
+            } else if ("vault".equals(key)) {
+                editingItem.setVaultBuyPrice(0);
+                editingItem.setVaultSellPrice(0);
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + m("editor.currency-disabled-msg", "&cDisabled Vault currency for this item.")));
+            } else if ("points".equals(key)) {
+                editingItem.setPpBuyPrice(0);
+                editingItem.setPpSellPrice(0);
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + m("editor.currency-disabled-msg", "&cDisabled Points currency for this item.")));
+            }
             build();
             return;
         }

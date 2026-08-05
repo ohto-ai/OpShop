@@ -55,6 +55,7 @@ public class ShopManager {
                 item.setRefundLimit(getColumnBoolean(rs, "refund_limit"));
                 item.setGenerateUniqueId(getColumnBoolean(rs, "generate_unique_id"));
                 item.setGuildRestrictionEnabled(getColumnBoolean(rs, "guild_restriction_enabled"));
+                item.setBroadcastOnTrade(getColumnBoolean(rs, "broadcast_on_trade"));
                 // New pricing columns (may not exist in old DB, default to 0)
                 item.setVaultBuyPrice(getColumnDouble(rs, "vault_buy_price"));
                 item.setVaultSellPrice(getColumnDouble(rs, "vault_sell_price"));
@@ -153,11 +154,11 @@ public class ShopManager {
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
                 total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
-                guild_restriction_enabled,
+                guild_restriction_enabled, broadcast_on_trade,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON DUPLICATE KEY UPDATE
                 page=VALUES(page), slot=VALUES(slot), display_item=VALUES(display_item), product_item=VALUES(product_item),
                 use_global_defaults=VALUES(use_global_defaults), buy_enabled=VALUES(buy_enabled),
@@ -167,6 +168,7 @@ public class ShopManager {
                 total_sold=VALUES(total_sold), player_limit=VALUES(player_limit), refund_limit=VALUES(refund_limit),
                 generate_unique_id=VALUES(generate_unique_id),
                 guild_restriction_enabled=VALUES(guild_restriction_enabled),
+                broadcast_on_trade=VALUES(broadcast_on_trade),
                 vault_buy_price=VALUES(vault_buy_price), vault_sell_price=VALUES(vault_sell_price),
                 pp_buy_price=VALUES(pp_buy_price), pp_sell_price=VALUES(pp_sell_price),
                 custom_currency_id=VALUES(custom_currency_id), custom_buy_price=VALUES(custom_buy_price),
@@ -176,11 +178,11 @@ public class ShopManager {
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
                 total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
-                guild_restriction_enabled,
+                guild_restriction_enabled, broadcast_on_trade,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
         try (Connection conn = databaseManager.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -205,6 +207,7 @@ public class ShopManager {
             ps.setBoolean(i++, item.isRefundLimit());
             ps.setBoolean(i++, item.isGenerateUniqueId());
             ps.setBoolean(i++, item.isGuildRestrictionEnabled());
+            ps.setBoolean(i++, item.isBroadcastOnTrade());
             ps.setDouble(i++, item.getVaultBuyPrice());
             ps.setDouble(i++, item.getVaultSellPrice());
             ps.setDouble(i++, item.getPpBuyPrice());

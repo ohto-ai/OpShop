@@ -240,6 +240,8 @@ public class DatabaseManager {
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN generate_unique_id BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
             // Migration: add guild_restriction_enabled column
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN guild_restriction_enabled BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
+            // Migration: add broadcast_on_trade column
+            try { stmt.execute("ALTER TABLE shop_items ADD COLUMN broadcast_on_trade BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
         }
     }
 

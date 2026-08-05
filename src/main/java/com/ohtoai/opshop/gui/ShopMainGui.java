@@ -166,8 +166,14 @@ public class ShopMainGui implements GuiHolder {
                 m("gui.next-page", "&a→ Next Page"),
                 List.of(m("gui.page-num", "&7Page {p}/{t}", "{p}", String.valueOf(currentPage + 2), "{t}", String.valueOf(totalPages)))));
         }
-        inventory.setItem(SLOT_CLOSE, GuiUtils.makeItem(Material.BARRIER,
-            m("gui.close", "&cClose"), List.of(m("gui.close-desc", "&7Click to close the shop"))));
+        if (guildIdFor(player) != null) {
+            inventory.setItem(SLOT_CLOSE, GuiUtils.makeItem(Material.ARROW,
+                m("gui.back-to-guild-list", "&6← Back to Guild List"),
+                List.of(m("gui.back-to-guild-list-desc", "&7Return to guild selection."))));
+        } else {
+            inventory.setItem(SLOT_CLOSE, GuiUtils.makeItem(Material.BARRIER,
+                m("gui.close", "&cClose"), List.of(m("gui.close-desc", "&7Click to close the shop"))));
+        }
     }
 
     /**
@@ -243,7 +249,12 @@ public class ShopMainGui implements GuiHolder {
         int slot = event.getSlot();
 
         if (slot == SLOT_CLOSE) {
-            player.closeInventory();
+            if (guildIdFor(player) != null) {
+                player.closeInventory();
+                new com.ohtoai.opshop.gui.GuildListGui(plugin).open(player);
+            } else {
+                player.closeInventory();
+            }
             return;
         }
 
