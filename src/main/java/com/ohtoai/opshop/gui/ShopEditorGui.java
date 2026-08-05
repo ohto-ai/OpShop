@@ -1399,14 +1399,26 @@ public class ShopEditorGui implements GuiHolder {
                 editingItem.setVaultBuyPrice(0);
                 editingItem.setVaultSellPrice(0);
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                String vaultDisplayName = currencyManager.getAllProviders().stream()
+                    .filter(p -> p.getType() == com.ohtoai.opshop.currency.CurrencyType.VAULT)
+                    .findFirst()
+                    .map(p -> currencyManager.getDisplayName(p.getId()))
+                    .orElse(m("editor.vault-currency", "Vault Money"));
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + m("editor.currency-disabled-msg", "&cDisabled Vault currency for this item.")));
+                    + m("editor.currency-disabled-msg", "&cDisabled {currency} for this item.",
+                        "{currency}", Messages.colorize(vaultDisplayName))));
             } else if ("points".equals(key)) {
                 editingItem.setPpBuyPrice(0);
                 editingItem.setPpSellPrice(0);
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                String pointsDisplayName = currencyManager.getAllProviders().stream()
+                    .filter(p -> p.getType() == com.ohtoai.opshop.currency.CurrencyType.PLAYER_POINTS)
+                    .findFirst()
+                    .map(p -> currencyManager.getDisplayName(p.getId()))
+                    .orElse(m("editor.points-currency", "Player Points"));
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + m("editor.currency-disabled-msg", "&cDisabled Points currency for this item.")));
+                    + m("editor.currency-disabled-msg", "&cDisabled {currency} for this item.",
+                        "{currency}", Messages.colorize(pointsDisplayName))));
             }
             build();
             return;

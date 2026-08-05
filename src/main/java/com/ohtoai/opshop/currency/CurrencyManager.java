@@ -83,10 +83,11 @@ public class CurrencyManager {
                     ItemStack item = ItemSerializer.deserialize(itemData);
                     if (item != null) {
                         ItemMeta meta = item.getItemMeta();
+                        String legacyName = formatLegacyName(name);
                         String displayName = meta.hasDisplayName()
                             ? net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
                                 .legacySection().serialize(meta.displayName())
-                            : name;
+                            : legacyName;
                         List<String> lore = meta.hasLore()
                             ? meta.lore().stream()
                                 .map(c -> net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
@@ -94,13 +95,14 @@ public class CurrencyManager {
                                 .toList()
                             : List.of();
 
-                        CurrencyDef def = new CurrencyDef(id, type, name, name,
+                        CurrencyDef def = new CurrencyDef(id, type, legacyName, legacyName,
                             item.getType().name(), displayName, lore,
                             meta.hasCustomModelData() ? meta.getCustomModelData() : 0);
                         definitions.put(id, def);
                     }
                 } else {
-                    definitions.putIfAbsent(id, new CurrencyDef(id, type, name, name));
+                    String legacyName = formatLegacyName(name);
+                    definitions.putIfAbsent(id, new CurrencyDef(id, type, legacyName, legacyName));
                 }
             }
         } catch (SQLException e) {
@@ -129,7 +131,7 @@ public class CurrencyManager {
         String displayName = meta.hasDisplayName()
             ? net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
                 .legacySection().serialize(meta.displayName())
-            : materialName;
+            : formatMaterialName(materialName);
 
         CurrencyDef def = new CurrencyDef(id, "CUSTOM_ITEM", displayName, displayName,
             materialName,
@@ -325,5 +327,37 @@ public class CurrencyManager {
                 default -> {}
             }
         }
+    }
+
+    /**
+     * Convert a Material enum name like "OAK_WOOD" to a human-readable "Oak Wood".
+     */
+    private static String formatMaterialName(String materialName) {
+        if (materialName == null || materialName.isEmpty()) return materialName;
+        String[] parts = materialName.toLowerCase().split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (!sb.isEmpty()) sb.append(' ');
+            if (!part.isEmpty()) {
+                sb.append(Character.toUpperCase(part.charAt(0)));
+                if (part.length() > 1) sb.append(part.substring(1));
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Format a legacy name if it looks like a raw Material enum name (e.g., "OAK_WOOD").
+     * Otherwise return the name unchanged (e.g., user-chosen names).
+     */
+    private static String formatLegacyName(String name) {
+        if (name == null || name.isEmpty()) return name;
+        // Only format if it looks like a Material enum: all uppercase letters and underscores
+        if (name.matches("^[A-Z][A-Z0-9_]*$")) {
+            try {
+                return formatMaterialName(name);
+            } catch (Exception ignored) {}
+        }
+        return name;
     }
 }
