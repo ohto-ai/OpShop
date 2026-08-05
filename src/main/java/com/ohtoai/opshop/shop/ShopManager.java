@@ -111,7 +111,7 @@ public class ShopManager {
                 double buyPrice = rs.getDouble("buy_price");
                 double sellPrice = rs.getDouble("sell_price");
                 ShopItem item = items.get(itemId);
-                if (item != null) {
+                if (item != null && currencyManager.getProvider(currencyId).isPresent()) {
                     item.setCustomCurrencyPrice(currencyId, buyPrice, sellPrice);
                 }
             }

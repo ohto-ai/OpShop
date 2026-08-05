@@ -14,8 +14,6 @@ import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.translation.GlobalTranslator;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -1191,17 +1189,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     name = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
                         .plainText().serialize(held.getItemMeta().displayName());
                 } else {
-                    // Use Minecraft's built-in translation for locale-aware item name
-                    try {
-                        String translationKey = held.getType().getTranslationKey();
-                        Component tc = Component.translatable(translationKey);
-                        Component resolved = GlobalTranslator.render(tc, player.locale());
-                        name = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
-                            .plainText().serialize(resolved);
-                    } catch (Exception e) {
-                        // Fallback: format material name: DIAMOND_SWORD → Diamond Sword
-                        name = formatMaterialName(held.getType().name());
-                    }
+                    // Format material name: DIAMOND_SWORD → Diamond Sword
+                    name = formatMaterialName(held.getType().name());
                 }
                 return name.isEmpty() ? List.of() : List.of(quoteIfNeeded(name));
             }
