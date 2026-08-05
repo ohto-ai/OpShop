@@ -356,8 +356,9 @@ public class ShopEditorGui implements GuiHolder {
                 "{buy}", formatPrice(item.getPpBuyPrice()), "{sell}", formatPrice(item.getPpSellPrice())))));
         // Show all custom currency prices
         for (var entry : item.getCustomCurrencyPrices().entrySet()) {
+            String currencyDisplay = currencyManager.getDisplayName(entry.getKey());
             lore.add(GuiUtils.toComponent(Messages.colorize(m("editor.custom-prices", "&7{currency} Buy:{buy} Sell:{sell}",
-                "{currency}", entry.getKey(),
+                "{currency}", currencyDisplay,
                 "{buy}", formatPrice(entry.getValue().buyPrice()),
                 "{sell}", formatPrice(entry.getValue().sellPrice())))));
         }
@@ -1392,9 +1393,10 @@ public class ShopEditorGui implements GuiHolder {
             if (currencyId != null) {
                 editingItem.removeCustomCurrencyPrice(currencyId);
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                String displayName = currencyManager.getDisplayName(currencyId);
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                     + m("editor.currency-removed-msg", "&cRemoved {currency}&r&c from this item.",
-                        "{currency}", currencyId)));
+                        "{currency}", displayName)));
             } else if ("vault".equals(key)) {
                 editingItem.setVaultBuyPrice(0);
                 editingItem.setVaultSellPrice(0);

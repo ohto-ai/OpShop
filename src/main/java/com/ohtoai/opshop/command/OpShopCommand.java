@@ -1185,13 +1185,28 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                     name = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
                         .plainText().serialize(held.getItemMeta().displayName());
                 } else {
-                    // Format material name: DIAMOND_SWORD → diamond sword
-                    name = held.getType().name().toLowerCase().replace('_', ' ');
+                    // Format material name: DIAMOND_SWORD → Diamond Sword
+                    name = formatMaterialName(held.getType().name());
                 }
-                return name.isEmpty() ? List.of() : List.of(name);
+                return name.isEmpty() ? List.of() : List.of(quoteIfNeeded(name));
             }
         }
         return List.of();
+    }
+
+    /** Convert a Material enum name like "OAK_WOOD" to human-readable "Oak Wood". */
+    private static String formatMaterialName(String materialName) {
+        if (materialName == null || materialName.isEmpty()) return materialName;
+        String[] parts = materialName.toLowerCase().split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (!sb.isEmpty()) sb.append(' ');
+            if (!part.isEmpty()) {
+                sb.append(Character.toUpperCase(part.charAt(0)));
+                if (part.length() > 1) sb.append(part.substring(1));
+            }
+        }
+        return sb.toString();
     }
 
     private List<String> filter(List<String> options, String prefix) {
