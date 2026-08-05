@@ -59,7 +59,7 @@ public class CustomCurrencyPriceGui implements GuiHolder {
 
     private void build(Player player) {
         CurrencyDef def = currencyManager.getDefinition(currencyId);
-        String displayName = def != null ? def.displayName() : currencyId;
+        String displayName = currencyManager.getDisplayName(currencyId);
         String title = m("editor.custom-currency-price-editor",
             "&8Price: {currency}",
             "{currency}", displayName);
@@ -122,8 +122,7 @@ public class CustomCurrencyPriceGui implements GuiHolder {
                 ItemStack item = new ItemStack(mat);
                 var meta = item.getItemMeta();
                 if (def.customModelData() > 0) meta.setCustomModelData(def.customModelData());
-                String name = def.customName() != null && !def.customName().isEmpty()
-                    ? def.customName() : def.displayName();
+                String name = currencyManager.getDisplayName(currencyId);
                 meta.displayName(GuiUtils.toComponent(
                     com.ohtoai.opshop.config.Messages.colorize("&f" + name)));
                 if (def.customLore() != null && !def.customLore().isEmpty()) {

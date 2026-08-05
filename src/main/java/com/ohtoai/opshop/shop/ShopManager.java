@@ -291,12 +291,13 @@ public class ShopManager {
                 ps.setString(1, item.getId());
                 ps.executeUpdate();
             }
-            // Insert current custom currency prices
+            // Insert current custom currency prices (skip deleted currencies)
             var prices = item.getCustomCurrencyPrices();
             if (!prices.isEmpty()) {
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO shop_item_prices (shop_item_id, currency_id, buy_price, sell_price) VALUES (?, ?, ?, ?)")) {
                     for (var entry : prices.entrySet()) {
+                        if (currencyManager.getProvider(entry.getKey()).isEmpty()) continue;
                         ps.setString(1, item.getId());
                         ps.setString(2, entry.getKey());
                         ps.setDouble(3, entry.getValue().buyPrice());

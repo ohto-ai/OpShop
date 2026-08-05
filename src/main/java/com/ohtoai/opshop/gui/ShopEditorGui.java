@@ -354,8 +354,9 @@ public class ShopEditorGui implements GuiHolder {
         if (item.getPpBuyPrice() > 0 || item.getPpSellPrice() > 0)
             lore.add(GuiUtils.toComponent(Messages.colorize(m("editor.points-prices", "&7Points Buy:{buy} Sell:{sell}",
                 "{buy}", formatPrice(item.getPpBuyPrice()), "{sell}", formatPrice(item.getPpSellPrice())))));
-        // Show all custom currency prices
+        // Show all custom currency prices (skip deleted currencies)
         for (var entry : item.getCustomCurrencyPrices().entrySet()) {
+            if (currencyManager.getProvider(entry.getKey()).isEmpty()) continue;
             String currencyDisplay = currencyManager.getDisplayName(entry.getKey());
             lore.add(GuiUtils.toComponent(Messages.colorize(m("editor.custom-prices", "&7{currency} Buy:{buy} Sell:{sell}",
                 "{currency}", currencyDisplay,
@@ -576,7 +577,7 @@ public class ShopEditorGui implements GuiHolder {
                     meta.setCustomModelData(def.customModelData());
                     icon.setItemMeta(meta);
                 }
-                if (def != null) displayName = def.displayName();
+                if (def != null) displayName = currencyManager.getDisplayName(key);
             }
         }
 
@@ -607,7 +608,7 @@ public class ShopEditorGui implements GuiHolder {
                                     boolean enabled, double buy, double sell) {
         String cid = def.id();
         ItemStack icon;
-        String displayName = def.displayName();
+        String displayName = currencyManager.getDisplayName(cid);
 
         // Try provider's display item first
         var provider = currencyManager.getProvider(cid);
@@ -1306,9 +1307,10 @@ public class ShopEditorGui implements GuiHolder {
                 }
                 editingItem.setCustomCurrencyPrice(cid, defaultBuy, defaultSell);
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+                String cidDisplay = currencyManager.getDisplayName(cid);
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                     + m("editor.currency-enabled-msg", "&aEnabled {currency}&r&a for this item.",
-                        "{currency}", def.displayName())));
+                        "{currency}", cidDisplay)));
                 build();
             }
             return;
@@ -1327,9 +1329,10 @@ public class ShopEditorGui implements GuiHolder {
         if (drop && ctrl) {
             editingItem.removeCustomCurrencyPrice(cid);
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+            String cidDisplay = currencyManager.getDisplayName(cid);
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                 + m("editor.currency-removed-msg", "&cRemoved {currency}&r&c from this item.",
-                    "{currency}", def.displayName())));
+                    "{currency}", cidDisplay)));
             build();
             return;
         }

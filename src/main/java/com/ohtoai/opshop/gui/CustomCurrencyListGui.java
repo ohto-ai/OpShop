@@ -159,11 +159,8 @@ public class CustomCurrencyListGui implements GuiHolder {
             item.setItemMeta(meta);
         }
 
-        // Build lore for the GUI
-        String displayName = def.displayName();
-        if (def.customName() != null && !def.customName().isEmpty()) {
-            displayName = def.customName();
-        }
+        // Build lore for the GUI — use locale-aware display name
+        String displayName = currencyManager.getDisplayName(id);
 
         String stateLabel = enabled
             ? m("editor.custom-currency-enabled", "&a✅ Enabled")
@@ -252,10 +249,11 @@ public class CustomCurrencyListGui implements GuiHolder {
                 if (shopItem.hasCustomCurrency(currencyId)) {
                     shopItem.removeCustomCurrencyPrice(currencyId);
                     player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                    String curDisplay = currencyManager.getDisplayName(currencyId);
                     player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                         + m("editor.custom-currency-removed",
                             "&cRemoved {currency}&r&c from this item.",
-                            "{currency}", def.displayName())));
+                            "{currency}", curDisplay)));
                 } else {
                     // Enable with default prices (from global defaults if available)
                     double defaultBuy = 1.0;
@@ -269,10 +267,11 @@ public class CustomCurrencyListGui implements GuiHolder {
                     }
                     shopItem.setCustomCurrencyPrice(currencyId, defaultBuy, defaultSell);
                     player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+                    String curDisplay = currencyManager.getDisplayName(currencyId);
                     player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                         + m("editor.custom-currency-added",
                             "&aAdded {currency}&r&a to this item.",
-                            "{currency}", def.displayName())));
+                            "{currency}", curDisplay)));
                 }
                 build(player);
                 return;
