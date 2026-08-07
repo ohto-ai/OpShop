@@ -53,18 +53,15 @@ public class GuiListener implements Listener {
         boolean isEditor = holder instanceof ShopEditorGui;
 
         if (isEditor) {
-            // Editor: allow bottom-inventory clicks (pickup), cancel top-inventory clicks
-            // EXCEPT when dropping an item on the "add" slot (47) with cursor
+            // Editor: allow bottom-inventory clicks (pickup), cancel ALL top-inventory clicks.
+            // All top-inventory interactions (add item from cursor, pick up, place, swap)
+            // are handled by ShopEditorGui.handleListClick.
             if (event.getClickedInventory() != event.getView().getTopInventory()) {
                 // Bottom inventory: let player pick up items freely
                 return;
             }
-            // Top inventory: cancel unless cursor has item (allow drops anywhere), or it's a creative copy
-            boolean hasCursorItem = event.getCursor() != null && event.getCursor().getType() != org.bukkit.Material.AIR;
-            boolean isCreativeCopy = event.getClick().isCreativeAction();
-            if (!isCreativeCopy && !hasCursorItem) {
-                event.setCancelled(true);
-            }
+            // Cancel ALL top-inventory clicks — we handle everything ourselves
+            event.setCancelled(true);
         } else {
             // Non-editor GUIs: cancel all clicks except creative middle-click copy
             if (!event.getClick().isCreativeAction()) {
