@@ -64,6 +64,12 @@ public class ShopEditorGui implements GuiHolder {
     private ShopItem editingItem;
     private boolean deleteConfirmPending = false;
 
+    // Drag-and-drop move state
+    private String pickedUpItemId = null;       // ID of item being moved
+    private int pickedUpFromPage = -1;          // original page
+    private int pickedUpFromSlot = -1;          // original slot
+    private ItemStack pickedUpCursorItem = null; // ghost item on cursor
+
     // Guild editor mode (null = normal shop editor)
     private Integer guildEditorId;
     private String guildEditorName;
@@ -225,7 +231,7 @@ public class ShopEditorGui implements GuiHolder {
         if (page < 0) page = 0;
 
         List<ShopItem> itemsOnPage = allItems.stream()
-            .filter(i -> i.getPage() == page)
+            .filter(i -> i.getPage() == page && !i.getId().equals(pickedUpItemId))
             .sorted(java.util.Comparator.comparingInt(ShopItem::getSlot))
             .toList();
 
@@ -680,15 +686,88 @@ public class ShopEditorGui implements GuiHolder {
         if (player.getOpenInventory().getTopInventory().getHolder() == this) {
             player.openInventory(inventory);
         }
+
+        // Restore ghost cursor after inventory reopen (openInventory clears cursor)
+        if (pickedUpItemId != null && pickedUpCursorItem != null) {
+            player.setItemOnCursor(pickedUpCursorItem);
+        }
     }
 
     // --- List view clicks ---
 
     private void handleListClick(Player player, int slot, InventoryClickEvent event) {
-        int totalPages = shopManager.getItemCount() == 0 ? 1 : shopManager.getMaxPage() + 1;
-
-        // If player has an item on cursor and clicked a non-grid slot, clear it to prevent loss
+        List<ShopItem> allItems = getFilteredItems();
+        int maxItemPage = allItems.stream().mapToInt(ShopItem::getPage).max().orElse(0);
+        int totalPages = allItems.isEmpty() ? 1 : Math.max(page + 1, maxItemPage + 1);
         boolean isGrid = slot >= 0 && slot < ITEMS_PER_PAGE;
+
+        // ── Ghost item mode: player is holding a picked-up editor item ──
+        if (pickedUpItemId != null) {
+            // Q key or click outside → cancel
+            boolean isDrop = event.getClick().name().contains("DROP");
+            if (isDrop || slot < 0) {
+                cancelPickup(player);
+                return;
+            }
+
+            // Navigation — allow cross-page drag (cursor restored by handleClick)
+            if (slot == 45 && page > 0) {
+                page--;
+                build();
+                return;
+            }
+            if (slot == 51 && page < totalPages - 1) {
+                page++;
+                build();
+                return;
+            }
+
+            // Page info — no action
+            if (slot == 49) return;
+
+            // Insert / Delete / Reload — cancel pickup first
+            if (slot == 46 || slot == 47 || slot == 50 || slot == 52) {
+                cancelPickup(player);
+                handleListClick(player, slot, event);
+                return;
+            }
+
+            // Close / Back — cancel pickup, then close
+            if (slot == 53) {
+                cancelPickup(player);
+                if (guildEditorId != null) {
+                    player.closeInventory();
+                    new com.ohtoai.opshop.gui.GuildAdminListGui(plugin).open(player);
+                } else {
+                    player.closeInventory();
+                }
+                return;
+            }
+
+            // Grid click while holding ghost
+            if (isGrid) {
+                // Find existing item at this slot (exclude the held item itself)
+                ShopItem existing = null;
+                for (ShopItem item : allItems) {
+                    if (item.getPage() == page && item.getSlot() == slot
+                        && !item.getId().equals(pickedUpItemId)) {
+                        existing = item;
+                        break;
+                    }
+                }
+                if (existing != null) {
+                    swapItems(player, existing);
+                } else {
+                    placeItem(player, slot);
+                }
+                return;
+            }
+            return;
+        }
+
+        // ── Normal mode: no ghost item ──
+
+        // If player has an item on cursor and clicked a non-grid slot, prevent loss
         if (!isGrid && event.getCursor() != null && event.getCursor().getType() != Material.AIR) {
             event.setCancelled(true);
             player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
@@ -766,9 +845,9 @@ public class ShopEditorGui implements GuiHolder {
         if (slot == 49) return;
 
         // Click on an item in the grid
-        if (slot >= 0 && slot < ITEMS_PER_PAGE) {
-            // Check if this slot already has an item (use filtered list)
-            List<ShopItem> pageItems = getFilteredItems().stream()
+        if (isGrid) {
+            // Find existing item at this slot
+            List<ShopItem> pageItems = allItems.stream()
                 .filter(i -> i.getPage() == page).toList();
             ShopItem existing = null;
             for (ShopItem item : pageItems) {
@@ -790,9 +869,18 @@ public class ShopEditorGui implements GuiHolder {
 
             // Click on existing item
             if (existing != null) {
-                if (event.getClick().name().contains("SHIFT") && event.getClick().name().contains("RIGHT")) {
+                boolean shift = event.getClick().name().contains("SHIFT");
+                boolean left = event.isLeftClick();
+                boolean right = event.isRightClick();
+
+                if (shift && right) {
+                    // Shift+Right-click → quick delete
                     deleteItemQuick(player, existing);
+                } else if (shift && left) {
+                    // Shift+Left-click → pick up for moving
+                    pickUpItem(player, existing);
                 } else {
+                    // Normal left-click → enter edit mode
                     enterEditMode(player, existing);
                 }
                 return;
@@ -1602,6 +1690,155 @@ public class ShopEditorGui implements GuiHolder {
             return String.valueOf((long) price);
         }
         return String.format("%.2f", price);
+    }
+
+    // -------------------------------------------------------------------------
+    // Drag-and-drop move helpers
+    // -------------------------------------------------------------------------
+
+    /** Whether the player is currently holding a picked-up item on their cursor. */
+    public boolean hasPickedUpItem() {
+        return pickedUpItemId != null;
+    }
+
+    /** Pick up an item from the grid — store reference and put ghost on cursor. */
+    private void pickUpItem(Player player, ShopItem item) {
+        this.pickedUpItemId = item.getId();
+        this.pickedUpFromPage = item.getPage();
+        this.pickedUpFromSlot = item.getSlot();
+        this.pickedUpCursorItem = buildPickupCursorItem(item);
+        player.setItemOnCursor(pickedUpCursorItem);
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 2.0f);
+        player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+            + m("editor.pickup-msg", "&ePicked up &f{id}&e. Click a slot to place, Q to cancel.",
+                "{id}", item.getId())));
+        build();
+    }
+
+    /** Place the held item at the given slot on the current page. */
+    private void placeItem(Player player, int targetSlot) {
+        ShopItem item = shopManager.getItem(pickedUpItemId).orElse(null);
+        if (item == null) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.item-no-longer-exists", "&cItem no longer exists.")));
+            clearPickupState(player);
+            build();
+            return;
+        }
+        item.setPage(page);
+        item.setSlot(targetSlot);
+        try { shopManager.saveItem(item); } catch (java.sql.SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to save moved item: " + item.getId(), e);
+        }
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+        player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+            + m("editor.place-msg", "&aPlaced &f{id}&a on page &e{page}&a slot &e{slot}.",
+                "{id}", item.getId(), "{page}", String.valueOf(page + 1), "{slot}", String.valueOf(targetSlot))));
+        clearPickupState(player);
+        build();
+    }
+
+    /** Swap the held item with the target item. */
+    private void swapItems(Player player, ShopItem target) {
+        ShopItem held = shopManager.getItem(pickedUpItemId).orElse(null);
+        if (held == null) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.item-no-longer-exists", "&cItem no longer exists.")));
+            clearPickupState(player);
+            build();
+            return;
+        }
+        int heldOldPage = pickedUpFromPage;
+        int heldOldSlot = pickedUpFromSlot;
+        int targetOldPage = target.getPage();
+        int targetOldSlot = target.getSlot();
+
+        held.setPage(targetOldPage);
+        held.setSlot(targetOldSlot);
+        target.setPage(heldOldPage);
+        target.setSlot(heldOldSlot);
+
+        try { shopManager.saveItem(held); } catch (java.sql.SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to save swapped item: " + held.getId(), e);
+        }
+        try { shopManager.saveItem(target); } catch (java.sql.SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to save swapped item: " + target.getId(), e);
+        }
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+        player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+            + m("editor.swap-msg", "&aSwapped &f{held}&a with &f{target}&a.",
+                "{held}", held.getId(), "{target}", target.getId())));
+        clearPickupState(player);
+        build();
+    }
+
+    /** Cancel the pickup — restore item to its original position. */
+    public void cancelPickup(Player player) {
+        if (pickedUpItemId == null) return;
+        ShopItem item = shopManager.getItem(pickedUpItemId).orElse(null);
+        if (item != null) {
+            item.setPage(pickedUpFromPage);
+            item.setSlot(pickedUpFromSlot);
+            try { shopManager.saveItem(item); } catch (java.sql.SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to restore item on cancel: " + item.getId(), e);
+            }
+        }
+        player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+            + m("editor.pickup-cancelled", "&7Move cancelled. Item restored to original position.")));
+        clearPickupState(player);
+        build();
+    }
+
+    /**
+     * Restore item data without rebuilding GUI — for use in InventoryCloseEvent
+     * where we can't open a new inventory.
+     */
+    public void silentRestorePickup() {
+        if (pickedUpItemId == null) return;
+        ShopItem item = shopManager.getItem(pickedUpItemId).orElse(null);
+        if (item != null) {
+            item.setPage(pickedUpFromPage);
+            item.setSlot(pickedUpFromSlot);
+            try { shopManager.saveItem(item); } catch (java.sql.SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to restore item on silent cancel: " + item.getId(), e);
+            }
+        }
+        this.pickedUpItemId = null;
+        this.pickedUpFromPage = -1;
+        this.pickedUpFromSlot = -1;
+        this.pickedUpCursorItem = null;
+    }
+
+    /** Clear all pickup state and remove ghost item from cursor. */
+    private void clearPickupState(Player player) {
+        this.pickedUpItemId = null;
+        this.pickedUpFromPage = -1;
+        this.pickedUpFromSlot = -1;
+        this.pickedUpCursorItem = null;
+        player.setItemOnCursor(null);
+    }
+
+    /** Build the ghost cursor item representing a picked-up shop item. */
+    private ItemStack buildPickupCursorItem(ShopItem item) {
+        ItemStack icon = ItemSerializer.deserialize(item.getDisplayItem());
+        if (icon == null || icon.getType() == Material.AIR) {
+            icon = new ItemStack(Material.PAPER);
+            ItemMeta meta = icon.getItemMeta();
+            meta.displayName(GuiUtils.toComponent(Messages.colorize("&e" + item.getId())));
+            icon.setItemMeta(meta);
+        }
+        ItemMeta meta = icon.getItemMeta();
+        List<Component> lore = meta.hasLore() ? new ArrayList<>(meta.lore()) : new ArrayList<>();
+        lore.add(Component.empty());
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.pickup-lore-place", "&a▶ Left-click empty slot: &fplace"))));
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.pickup-lore-swap", "&a▶ Left-click another item: &fswap"))));
+        lore.add(GuiUtils.toComponent(Messages.colorize(
+            m("editor.pickup-lore-cancel", "&c▶ Q / Esc: &fcancel"))));
+        meta.lore(lore);
+        icon.setItemMeta(meta);
+        return icon;
     }
 
     // -------------------------------------------------------------------------

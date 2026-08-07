@@ -22,15 +22,27 @@ public class GuiListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryClick(InventoryClickEvent event) {
+        // Ghost item protection: intercept actions that would drop a picked-up editor item
+        ShopEditorGui editor = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getWhoClicked());
+        if (editor != null && editor.hasPickedUpItem()) {
+            if (event.getClickedInventory() == null
+                || event.getClick() == org.bukkit.event.inventory.ClickType.DROP
+                || event.getClick() == org.bukkit.event.inventory.ClickType.CONTROL_DROP) {
+                event.setCancelled(true);
+                editor.cancelPickup((org.bukkit.entity.Player) event.getWhoClicked());
+                return;
+            }
+        }
+
         if (event.getClickedInventory() == null) return;
 
         // Anvil input for ShopEditorGui — intercept before GuiHolder check
         if (event.getView().getTopInventory().getType() == InventoryType.ANVIL) {
-            ShopEditorGui editor = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getWhoClicked());
-            if (editor != null && editor.isAnvilOpen()) {
+            ShopEditorGui ed = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getWhoClicked());
+            if (ed != null && ed.isAnvilOpen()) {
                 event.setCancelled(true);
                 if (event.getClickedInventory() == event.getView().getTopInventory()) {
-                    editor.handleAnvilClick((org.bukkit.entity.Player) event.getWhoClicked(), event);
+                    ed.handleAnvilClick((org.bukkit.entity.Player) event.getWhoClicked(), event);
                 }
                 return;
             }
@@ -76,11 +88,18 @@ public class GuiListener implements Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onInventoryClose(InventoryCloseEvent event) {
+        // Ghost item protection: restore picked-up item data if editor closes unexpectedly.
+        // Do NOT cancelPickup (which rebuilds & reopens inventory). Just restore data silently.
+        ShopEditorGui ed = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getPlayer());
+        if (ed != null && ed.hasPickedUpItem()) {
+            ed.silentRestorePickup();
+        }
+
         // Anvil close — finalize item creation from the input name
         if (event.getView().getTopInventory().getType() == InventoryType.ANVIL) {
-            ShopEditorGui editor = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getPlayer());
-            if (editor != null && editor.isAnvilOpen()) {
-                editor.handleAnvilClose((org.bukkit.entity.Player) event.getPlayer(), event.getInventory());
+            ShopEditorGui anvilEditor = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getPlayer());
+            if (anvilEditor != null && anvilEditor.isAnvilOpen()) {
+                anvilEditor.handleAnvilClose((org.bukkit.entity.Player) event.getPlayer(), event.getInventory());
             }
         }
     }
