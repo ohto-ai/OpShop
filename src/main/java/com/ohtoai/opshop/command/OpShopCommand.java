@@ -3,6 +3,7 @@ package com.ohtoai.opshop.command;
 import com.ohtoai.opshop.OpShopPlugin;
 import com.ohtoai.opshop.config.Messages;
 import com.ohtoai.opshop.currency.CurrencyProvider;
+import com.ohtoai.opshop.database.SqliteImportService;
 import com.ohtoai.opshop.database.TransactionRecord;
 import com.ohtoai.opshop.database.TransactionRepository;
 import com.ohtoai.opshop.gui.ShopEditorGui;
@@ -16,6 +17,7 @@ import org.bukkit.inventory.ItemStack;
 
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
+import java.io.File;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -189,8 +191,82 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             case "log" -> handleLog(sender, Arrays.copyOfRange(args, 1, args.length));
             case "view" -> handleView(sender, Arrays.copyOfRange(args, 1, args.length));
             case "trace" -> handleTrace(sender, Arrays.copyOfRange(args, 1, args.length));
+            case "importsqlite" -> handleImportSqlite(sender, Arrays.copyOfRange(args, 1, args.length));
             default -> { sendAdminHelp(sender); yield true; }
         };
+    }
+
+    private boolean handleImportSqlite(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("opshop.admin")) {
+            sender.sendMessage(plugin.getMessages().get("no-permission"));
+            return true;
+        }
+
+        if (!plugin.getDatabaseManager().isMySQL()) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("command.importsqlite-only-mysql",
+                    "&cThis command only works when using MySQL as the database.")));
+            return true;
+        }
+
+        // Resolve file path: use arg if provided, otherwise default from config
+        String filePath;
+        if (args.length > 0) {
+            filePath = joinArgs(args, 0, args.length);
+        } else {
+            File defaultFile = new File(plugin.getDataFolder(), plugin.getPluginConfig().getSqliteFile());
+            filePath = defaultFile.getAbsolutePath();
+        }
+
+        File sqliteFile = new File(filePath);
+        if (!sqliteFile.exists() || !sqliteFile.isFile()) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("command.importsqlite-file-not-found",
+                    "&cSQLite file not found: &e{file}", "{file}", filePath)));
+            return true;
+        }
+
+        sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+            + plugin.getMessages().get("command.importsqlite-start",
+                "&aStarting SQLite import from &e{file}&a...", "{file}", filePath)));
+
+        final String finalPath = sqliteFile.getAbsolutePath();
+        final boolean isConsole = !(sender instanceof Player);
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            try (java.sql.Connection conn = plugin.getDatabaseManager().getConnection()) {
+                var results = SqliteImportService.importFromSqlite(finalPath, conn);
+
+                // Report results back on main thread
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    // Safety: player may have disconnected during import
+                    if (!isConsole && !((Player) sender).isOnline()) return;
+                    int totalTables = results.size();
+                    sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                        + plugin.getMessages().get("command.importsqlite-complete",
+                            "&aImport complete! {tables} tables processed.",
+                            "{tables}", String.valueOf(totalTables))));
+                    for (var entry : results.entrySet()) {
+                        int[] counts = entry.getValue();
+                        sender.sendMessage(Messages.colorize(
+                            plugin.getMessages().get("command.importsqlite-table-result",
+                                "&7  {table}: &a{imported} imported&7, &e{skipped} skipped",
+                                "{table}", entry.getKey(),
+                                "{imported}", String.valueOf(counts[0]),
+                                "{skipped}", String.valueOf(counts[1]))));
+                    }
+                });
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING, "SQLite import failed", e);
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (!isConsole && !((Player) sender).isOnline()) return;
+                    sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                        + plugin.getMessages().get("command.importsqlite-error",
+                            "&cImport failed: {error}", "{error}", e.getMessage())));
+                });
+            }
+        });
+
+        return true;
     }
 
     private boolean handleEditor(CommandSender sender) {
@@ -1032,6 +1108,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(m.get("command.admin-view", "&e/oshop admin view [player|item] &7— View transactions in GUI"));
         sender.sendMessage(m.get("command.admin-reload", "&e/oshop admin reload &7— Reload config"));
         sender.sendMessage(m.get("command.admin-resetlimit", "&e/oshop admin resetlimit <player> <id> &7— Reset player purchase limit"));
+        sender.sendMessage(m.get("command.admin-importsqlite", "&e/oshop admin importsqlite [file] &7— Import SQLite data into MySQL"));
         sender.sendMessage(m.get("trace.help-list-item", "&e/oshop admin trace list item <item> &7— List trace records for an item"));
         sender.sendMessage(m.get("trace.help-list-player", "&e/oshop admin trace list player <player> &7— List trace records for a player"));
         sender.sendMessage(m.get("trace.help-log", "&e/oshop admin trace log [ID] &7— View trace record in chat"));
@@ -1060,7 +1137,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         if (!args[0].equalsIgnoreCase("admin")) return List.of();
 
         if (args.length == 2) {
-            return filter(List.of("editor", "guild", "add", "delete", "give", "reload", "currency", "log", "view", "resetlimit", "trace"), args[1]);
+            return filter(List.of("editor", "guild", "add", "delete", "give", "reload", "currency", "log", "view", "resetlimit", "trace", "importsqlite"), args[1]);
         }
         if (args[1].equalsIgnoreCase("guild")) {
             if (plugin.getHookManager().isGuildEnabled()) {
