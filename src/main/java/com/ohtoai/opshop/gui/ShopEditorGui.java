@@ -870,17 +870,16 @@ public class ShopEditorGui implements GuiHolder {
             // Click on existing item
             if (existing != null) {
                 boolean shift = event.getClick().name().contains("SHIFT");
-                boolean left = event.isLeftClick();
                 boolean right = event.isRightClick();
 
                 if (shift && right) {
                     // Shift+Right-click → quick delete
                     deleteItemQuick(player, existing);
-                } else if (shift && left) {
-                    // Shift+Left-click → pick up for moving
+                } else if (right) {
+                    // Right-click → pick up for moving
                     pickUpItem(player, existing);
                 } else {
-                    // Normal left-click → enter edit mode
+                    // Left-click → enter edit mode
                     enterEditMode(player, existing);
                 }
                 return;
