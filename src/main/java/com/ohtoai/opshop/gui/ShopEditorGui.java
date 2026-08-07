@@ -685,18 +685,22 @@ public class ShopEditorGui implements GuiHolder {
 
         // Reopen to reflect changes since clicks are cancelled
         if (player.getOpenInventory().getTopInventory().getHolder() == this) {
-            player.setItemOnCursor(null); // safety: prevent ghost from going to backpack
+            // Ghost mode: clear cursor before reopen so the ghost doesn't go to backpack.
+            // Normal mode: let openInventory naturally return the player's item to inventory.
+            if (pickedUpItemId != null) {
+                player.setItemOnCursor(null);
+            }
             reopeningInventory = true;
             player.openInventory(inventory);
             reopeningInventory = false;
         }
 
-        // Restore ghost cursor after inventory reopen (openInventory clears cursor)
+        // Restore ghost cursor after inventory reopen
         if (pickedUpItemId != null && pickedUpCursorItem != null) {
             player.setItemOnCursor(pickedUpCursorItem);
-        } else {
-            // Bukkit reverts cursor to pre-click state when event is cancelled.
-            // Schedule a next-tick clear so the ghost doesn't end up in the backpack.
+        } else if (pickedUpItemId == null) {
+            // Ghost was placed/cancelled, but Bukkit reverts cursor to pre-click state
+            // when the event is cancelled. Schedule a next-tick clear to clean up.
             org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
                 if (pickedUpItemId == null && player.getOpenInventory().getTopInventory().getHolder() == this) {
                     player.setItemOnCursor(null);
