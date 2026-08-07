@@ -69,6 +69,7 @@ public class ShopEditorGui implements GuiHolder {
     private int pickedUpFromPage = -1;          // original page
     private int pickedUpFromSlot = -1;          // original slot
     private ItemStack pickedUpCursorItem = null; // ghost item on cursor
+    private boolean reopeningInventory = false;  // true while we reopen in handleClick
 
     // Guild editor mode (null = normal shop editor)
     private Integer guildEditorId;
@@ -684,7 +685,9 @@ public class ShopEditorGui implements GuiHolder {
 
         // Reopen to reflect changes since clicks are cancelled
         if (player.getOpenInventory().getTopInventory().getHolder() == this) {
+            reopeningInventory = true;
             player.openInventory(inventory);
+            reopeningInventory = false;
         }
 
         // Restore ghost cursor after inventory reopen (openInventory clears cursor)
@@ -1698,6 +1701,11 @@ public class ShopEditorGui implements GuiHolder {
     /** Whether the player is currently holding a picked-up item on their cursor. */
     public boolean hasPickedUpItem() {
         return pickedUpItemId != null;
+    }
+
+    /** Whether the editor is currently reopening its own inventory (not a real close). */
+    public boolean isReopeningInventory() {
+        return reopeningInventory;
     }
 
     /** Pick up an item from the grid — store reference and put ghost on cursor. */

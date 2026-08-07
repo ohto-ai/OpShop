@@ -86,9 +86,9 @@ public class GuiListener implements Listener {
     @EventHandler(priority = EventPriority.NORMAL)
     public void onInventoryClose(InventoryCloseEvent event) {
         // Ghost item protection: restore picked-up item data if editor closes unexpectedly.
-        // Do NOT cancelPickup (which rebuilds & reopens inventory). Just restore data silently.
+        // Skip if the editor is just reopening its own inventory (controlled refresh).
         ShopEditorGui ed = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getPlayer());
-        if (ed != null && ed.hasPickedUpItem()) {
+        if (ed != null && ed.hasPickedUpItem() && !ed.isReopeningInventory()) {
             ed.silentRestorePickup();
         }
 
