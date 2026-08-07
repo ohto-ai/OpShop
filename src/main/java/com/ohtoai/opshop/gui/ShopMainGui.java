@@ -10,6 +10,7 @@ import com.ohtoai.opshop.shop.ShopManager;
 import com.ohtoai.opshop.shop.TransactionProcessor;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
@@ -45,6 +46,7 @@ public class ShopMainGui implements GuiHolder {
 
     // Navigation bar (row 5)
     private static final int SLOT_PREV = 45;
+    private static final int SLOT_JOIN_GUILD = 47;
     private static final int SLOT_INFO = 49;
     private static final int SLOT_NEXT = 51;
     private static final int SLOT_CLOSE = 53;
@@ -122,8 +124,8 @@ public class ShopMainGui implements GuiHolder {
         List<ShopItem> allItems = getFilteredItems(player);
         // Calculate pagination based on the filtered list
         int totalItemCount = allItems.size();
-        int totalPages = totalItemCount == 0 ? 1
-            : allItems.stream().mapToInt(ShopItem::getPage).max().orElse(0) + 1;
+        int maxItemPage = allItems.stream().mapToInt(ShopItem::getPage).max().orElse(0);
+        int totalPages = totalItemCount == 0 ? 1 : Math.max(currentPage + 1, maxItemPage + 1);
         if (currentPage >= totalPages) currentPage = totalPages - 1;
         if (currentPage < 0) currentPage = 0;
 
@@ -157,6 +159,24 @@ public class ShopMainGui implements GuiHolder {
                 m("gui.prev-page", "&a← Previous Page"),
                 List.of(m("gui.page-num", "&7Page {p}/{t}", "{p}", String.valueOf(currentPage), "{t}", String.valueOf(totalPages)))));
         }
+
+        // Join Guild button — only for guildless players viewing a guild shop
+        Integer viewingGuildId = guildIdFor(player);
+        if (viewingGuildId != null) {
+            var hook = plugin.getHookManager();
+            boolean playerHasGuild = hook.isGuildEnabled()
+                && hook.getGuildBridge().getPlayerGuild(player.getUniqueId()) != null;
+            if (!playerHasGuild) {
+                String viewingGuildName = guildNameFor(player);
+                inventory.setItem(SLOT_JOIN_GUILD, GuiUtils.makeItem(Material.EMERALD,
+                    m("gui.join-guild-btn", "&a&l🚪 Join {guild}",
+                        "{guild}", viewingGuildName != null ? viewingGuildName : "?"),
+                    List.of(
+                        m("gui.join-guild-desc", "&7Apply to join this guild!")
+                    )));
+            }
+        }
+
         inventory.setItem(SLOT_INFO, GuiUtils.makeItem(Material.PAPER,
             m("gui.page-info", "&ePage {current} / {total}", "{current}", String.valueOf(currentPage + 1), "{total}", String.valueOf(totalPages)),
             List.of(m("gui.items-total", "&7{count} items total",
@@ -268,11 +288,34 @@ public class ShopMainGui implements GuiHolder {
 
         if (slot == SLOT_NEXT) {
             List<ShopItem> filtered = getFilteredItems(player);
-            int totalPages = filtered.isEmpty() ? 1
-                : filtered.stream().mapToInt(ShopItem::getPage).max().orElse(0) + 1;
+            int maxPage = filtered.stream().mapToInt(ShopItem::getPage).max().orElse(0);
+            int totalPages = filtered.isEmpty() ? 1 : Math.max(currentPage + 1, maxPage + 1);
             if (currentPage < totalPages - 1) {
                 currentPage++;
                 buildAndShow(player);
+            }
+            return;
+        }
+
+        if (slot == SLOT_JOIN_GUILD) {
+            // Join guild button — guildless player wants to join the guild they're viewing
+            Integer viewingGuildId = guildIdFor(player);
+            if (viewingGuildId != null) {
+                var hook = plugin.getHookManager();
+                boolean playerHasGuild = hook.isGuildEnabled()
+                    && hook.getGuildBridge().getPlayerGuild(player.getUniqueId()) != null;
+                if (!playerHasGuild) {
+                    String guildName = guildNameFor(player);
+                    boolean sent = hook.getGuildBridge().joinGuild(player, viewingGuildId);
+                    if (sent) {
+                        player.sendMessage(plugin.getMessages().getComponent("prefix"));
+                        player.sendMessage(Messages.toComponent(
+                            plugin.getMessages().get("gui.join-guild-sent",
+                                "&aJoin request sent to &f{guild}&a!",
+                                "{guild}", guildName != null ? guildName : "?")));
+                        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.2f);
+                    }
+                }
             }
             return;
         }

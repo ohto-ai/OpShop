@@ -1,6 +1,7 @@
 package com.ohtoai.opshop.integration;
 
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -173,6 +174,38 @@ public final class GuildPluginBridge {
     public String getGuildTag(int guildId) {
         GuildInfo info = getGuildById(guildId);
         return info != null ? info.tag() : null;
+    }
+
+    /**
+     * Attempt to make a player join a guild.
+     * <p>
+     * Tries reflection on GuildService first (common method signatures), then falls
+     * back to dispatching {@code /guild apply <name>} as the player. Returns true if
+     * the request was dispatched — it does not guarantee the join succeeded.
+     */
+    public boolean joinGuild(Player player, int guildId) {
+        // 1. Try reflection — GuildService may expose a direct join method
+        if (ready && guildService != null) {
+            for (String methodName : new String[]{"joinGuild", "addMember", "addPlayerToGuild"}) {
+                try {
+                    Method m = guildService.getClass().getMethod(methodName, UUID.class, int.class);
+                    m.invoke(guildService, player.getUniqueId(), guildId);
+                    return true;
+                } catch (NoSuchMethodException ignored) {
+                    // try next signature
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Reflection joinGuild(" + methodName + ") failed, falling back to command", e);
+                    break;
+                }
+            }
+        }
+
+        // 2. Fallback: dispatch /guild join <name>
+        GuildInfo info = getGuildById(guildId);
+        if (info != null && info.name() != null) {
+            return player.performCommand("guild apply " + info.name());
+        }
+        return false;
     }
 
     // -------------------------------------------------------------------------

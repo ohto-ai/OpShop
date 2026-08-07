@@ -219,8 +219,8 @@ public class ShopEditorGui implements GuiHolder {
 
         List<ShopItem> allItems = getFilteredItems();
         int totalItems = allItems.size();
-        int totalPages = totalItems == 0 ? 1
-            : allItems.stream().mapToInt(ShopItem::getPage).max().orElse(0) + 1;
+        int maxItemPage = allItems.stream().mapToInt(ShopItem::getPage).max().orElse(0);
+        int totalPages = totalItems == 0 ? 1 : Math.max(page + 1, maxItemPage + 1);
         if (page >= totalPages) page = totalPages - 1;
         if (page < 0) page = 0;
 
