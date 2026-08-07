@@ -22,14 +22,23 @@ public class GuiListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryClick(InventoryClickEvent event) {
-        // Ghost item protection: intercept actions that would drop a picked-up editor item
+        // Ghost item protection: intercept ANY action that would drop a picked-up editor item.
+        // This includes: outside clicks, Q-drop, clicking the player's own inventory.
         ShopEditorGui editor = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getWhoClicked());
         if (editor != null && editor.hasPickedUpItem()) {
+            boolean isBottomClick = event.getClickedInventory() != null
+                && event.getClickedInventory() != event.getView().getTopInventory();
             if (event.getClickedInventory() == null
                 || event.getClick() == org.bukkit.event.inventory.ClickType.DROP
-                || event.getClick() == org.bukkit.event.inventory.ClickType.CONTROL_DROP) {
+                || event.getClick() == org.bukkit.event.inventory.ClickType.CONTROL_DROP
+                || isBottomClick) {
                 event.setCancelled(true);
                 editor.cancelPickup((org.bukkit.entity.Player) event.getWhoClicked());
+                // reopen to refresh display (cancelPickup rebuilt inventory but didn't reopen)
+                org.bukkit.entity.Player p = (org.bukkit.entity.Player) event.getWhoClicked();
+                if (p.getOpenInventory().getTopInventory().getHolder() instanceof GuiHolder) {
+                    p.openInventory(editor.getInventory());
+                }
                 return;
             }
         }
