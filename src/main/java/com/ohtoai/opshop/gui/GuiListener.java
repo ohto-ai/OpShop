@@ -90,6 +90,8 @@ public class GuiListener implements Listener {
         ShopEditorGui ed = ShopEditorGui.getActiveInstance((org.bukkit.entity.Player) event.getPlayer());
         if (ed != null && ed.hasPickedUpItem() && !ed.isReopeningInventory()) {
             ed.silentRestorePickup();
+            org.bukkit.entity.Player player = (org.bukkit.entity.Player) event.getPlayer();
+            player.setItemOnCursor(null);
         }
 
         // Anvil close — finalize item creation from the input name
