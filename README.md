@@ -2,6 +2,20 @@
 
 A multi-currency virtual shop plugin for Paper Minecraft servers. Players can buy and sell items using Vault economy, PlayerPoints, or custom item-based currencies — all through an intuitive GUI.
 
+## Screenshots
+
+| Shop editor | Item & price editor |
+|---|---|
+| ![Shop editor](docs/screenshots/opshop-editor.webp) | ![Item & price editor](docs/screenshots/opshop-item.webp) |
+
+| Currency list | Transaction log |
+|---|---|
+| ![Currency list](docs/screenshots/opshop-currency.webp) | ![Transaction log](docs/screenshots/opshop-trace.webp) |
+
+| Guild shop editor |
+|---|
+| ![Guild shop editor](docs/screenshots/opshop-guild.webp) |
+
 ## Features
 
 | Feature | Detail |
