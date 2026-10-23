@@ -43,6 +43,7 @@ public class PluginConfig {
     private String locale;
     private boolean debug;
     private boolean defaultBuySellEnabled;
+    private boolean bungeeSyncEnabled;
 
     public PluginConfig(OpShopPlugin plugin) {
         this.plugin = plugin;
@@ -134,6 +135,7 @@ public class PluginConfig {
         this.locale = config.getString("locale", "en");
         this.debug = config.getBoolean("debug", false);
         this.defaultBuySellEnabled = config.getBoolean("default-buy-sell-enabled", false);
+        this.bungeeSyncEnabled = config.getBoolean("bungee-sync.enabled", true);
 
         if (debug) {
             plugin.getLogger().info("Config loaded: " + currencyDefs.size() + " currencies, "
@@ -165,6 +167,7 @@ public class PluginConfig {
     public String getLocale() { return locale; }
     public boolean isDebug() { return debug; }
     public boolean isDefaultBuySellEnabled() { return defaultBuySellEnabled; }
+    public boolean isBungeeSyncEnabled() { return bungeeSyncEnabled; }
 
     /**
      * Currency definition record parsed from config.

@@ -23,6 +23,15 @@ guild-locked: "&cThis item is only available to specific guild members!"
 total-limit-reached: "&cThis item has reached its total purchase limit!"
 player-limit-reached: "&cYou have reached your purchase limit for this item!"
 
+# --- New item announcements ---
+new-items:
+  header: "&6&lNew items are available!"
+  entry: "  &7- &f{name}&r &8[{id}]"
+  more: "  &7... and &f{count} &7more"
+  hover: "&eClick to open the trade view"
+  click-hint: "&7Click an item name to open its trade view."
+  announce-refreshed: "&aAnnouncement refreshed for &e{id}&a — players will be notified."
+
 # --- GUI ---
 gui:
   prev-page: "&a← Previous Page"
@@ -61,6 +70,10 @@ gui:
   sell-x: "&6Sell x{qty}"
   buy-x-desc: "&7Buy &f{qty}x &7for &f{price} {currency}"
   sell-x-desc: "&7Sell &f{qty}x &7for &f{price} {currency}"
+  limit-remaining-total: "&cTotal limit: &f{remaining}&c/{limit} &7left"
+  limit-remaining-player: "&cYour limit: &f{remaining}&c/{limit} &7left"
+  limit-reached: "&c&lPurchase limit reached!"
+  limit-can-buy: "&7You can only buy &f{remaining} &7more"
 
   # Purchase GUI
   purchase:
@@ -76,6 +89,7 @@ gui:
     total: "&7Total: &f{price} {currency}"
     balance: "&7Your balance: &f{balance}"
     quantity: "&7Click to select quantity: {qty}"
+    limit-exceeded: "&cYou can only buy &f{remaining} &cmore of this item!"
 
   # Sell GUI
   sell:
@@ -230,6 +244,7 @@ editor:
   player-limit: "&ePlayer Limit: {value}"
   player-limit-unlimited: "&aUnlimited"
   limit-controls: "&7L+1 R-1 ShiftL+10 ShiftR-10 Q=∞"
+  total-sold-progress: "&7Sold: &f{sold}&7/&f{limit}"
 
   # Price editor controls
   price-controls-1: "&7L: +1 | R: -1"
@@ -337,6 +352,26 @@ editor:
   anvil-esc-hint: "&7Press &oESC &7to cancel"
   anvil-type-price: "&7Type new price"
   back-to-list-desc: "&7Return to item list"
+  announce-refresh: "&d🔔 Refresh New-Item Notice"
+  announce-refresh-desc-1: "&7Mark this item as new again."
+  announce-refresh-desc-2: "&7Online players are notified now,"
+  announce-refresh-desc-3: "&7others see it on their next login."
+  price-min: "&cPrice must be &f0 &cor at least &f0.01&c."
+  price-integer-only: "&cCustom currencies only support integer prices!"
+
+  # Page title
+  page-title-btn: "&d📝 Set Page Title"
+  page-title-desc-1: "&7Set a title shown when this page opens."
+  page-title-desc-2: "&7Supports & / RGB colors. Shift+Click to clear."
+  page-title-desc-3: "&7Drop a name tag to use its colored name."
+  page-title-current: "&7Title: &f{title}"
+  page-title-anvil-hint: "&7Type the page title (& colors supported)"
+  page-title-placeholder: "New Title"
+  page-title-set: "&aPage {page} title set to: &r{title}"
+  page-title-cleared: "&aPage {page} title cleared."
+  page-title-cancelled: "&7Title unchanged."
+  page-title-nametag-empty: "&cThe name tag has no name! Name it in an anvil first."
+  db-error-title: "&cFailed to save page title!"
 
 # --- Currency ---
 currency:
@@ -359,8 +394,9 @@ currency:
 command:
   version: "&6OShop v{version}"
   help-header: "&6=== OShop Commands ==="
-  help-open: "&e/oshop &7— Open the shop"
-  help-open-player: "&e/oshop open [player] &7— Open shop for a player"
+  help-open: "&e/oshop [page] &7— Open the shop (optionally at a page)"
+  help-item: "&e/oshop item <itemId> &7— Open an item's trade view directly"
+  help-open-player: "&e/oshop open [player] [page] &7— Open shop for a player"
   help-guild: "&e/oshop guild [name] &7— View guild shop"
   help-guild-all: "&e/oshop guild-all &7— List all guild shops"
   help-sell: "&e/oshop sell [player] &7— Open sell mode"
@@ -380,7 +416,8 @@ command:
   admin-log: "&e/oshop admin log [player|item] [page] &7— View transactions in chat"
   admin-view: "&e/oshop admin view [player|item] &7— View transactions in GUI"
   admin-reload: "&e/oshop admin reload &7— Reload config"
-  admin-resetlimit: "&e/oshop admin resetlimit <player> <id> &7— Reset player purchase limit"
+  admin-resetlimit: "&e/oshop admin resetlimit <player|all> <id|all> &7— Reset purchase limits"
+  admin-limitinfo: "&e/oshop admin limitinfo <player> [id] &7— Show purchase limit progress"
   admin-trace: "&e/oshop admin trace <list|log|view> [...] &7— Trace ID management"
   admin-importsqlite: "&e/oshop admin importsqlite [file] &7— Import SQLite data into MySQL"
   importsqlite-only-mysql: "&cThis command only works when using MySQL as the database."
@@ -389,9 +426,20 @@ command:
   importsqlite-complete: "&aImport complete! {tables} tables processed."
   importsqlite-table-result: "&7  {table}: &a{imported} imported&7, &e{skipped} skipped"
   importsqlite-error: "&cImport failed: {error}"
-  resetlimit-usage: "&cUsage: /oshop admin resetlimit <player> <itemId>"
+  resetlimit-usage: "&cUsage: /oshop admin resetlimit <player|all> <itemId|all>"
   resetlimit-done: "&aReset purchase limit for {player} on {item}."
+  resetlimit-all-player: "&aReset purchase limits for {player} on all items. &7(cleared {rows} record(s), refunded {count})"
+  resetlimit-all-item: "&aReset purchase limit for all players on {item}. &7(cleared {rows} record(s), refunded {count})"
+  resetlimit-all-all: "&aReset all purchase limits. &7(cleared {rows} record(s), zeroed {items} total counter(s))"
+  limitinfo-usage: "&cUsage: /oshop admin limitinfo <player> [itemId]"
+  limitinfo-header: "&e===== Purchase limits: {player} ====="
+  limitinfo-item-header: "&e===== Limit: {item} ({player}) ====="
+  limitinfo-none: "&7No purchase records or limits for this player."
+  limitinfo-entry: "&f{id} &7— player &f{bought}/{plimit} &7(left &f{premaining}&7) | total &f{sold}/{tlimit} &7(left &f{tremaining}&7)"
+  limitinfo-error: "&cError reading purchase limits!"
   open-shop-for: "&aOpened shop for {player}"
+  item-usage: "&cUsage: /oshop item <itemId>"
+  console-no-item: "Console cannot open an item trade view."
   console-specify-open: "Console must specify a player: /oshop open <player>"
   console-no-editor: "Console cannot open the editor GUI."
   console-no-add: "Console cannot add items. Use the editor."
@@ -531,3 +579,7 @@ guild-whitelist:
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7for &f{price} {currency}"
+
+# --- BungeeCord Sync ---
+bungee-sync-received: "&aReceived reload notification from another server — data refreshed."
+bungee-sync-sent: "&7Sent reload notification to other servers."

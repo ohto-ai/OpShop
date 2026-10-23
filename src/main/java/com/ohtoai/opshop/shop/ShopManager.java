@@ -20,6 +20,8 @@ public class ShopManager {
     private final DatabaseManager databaseManager;
     private final Map<String, ShopItem> items = new ConcurrentHashMap<>();
     private final Map<UUID, Map<String, Long>> cooldowns = new ConcurrentHashMap<>();
+    /** Per-page titles (0-indexed page → raw title with & color codes). */
+    private final Map<Integer, String> pageTitles = new ConcurrentHashMap<>();
 
     public ShopManager(OpShopPlugin plugin, CurrencyManager currencyManager, DatabaseManager databaseManager) {
         this.plugin = plugin;
@@ -28,6 +30,11 @@ public class ShopManager {
     }
 
     public void loadFromConfig(PluginConfig config) {
+        loadFromDatabase();
+    }
+
+    /** Reload all items from database (used by cross-server sync). */
+    public void reloadFromDatabase() {
         loadFromDatabase();
     }
 
@@ -56,14 +63,15 @@ public class ShopManager {
                 item.setGenerateUniqueId(getColumnBoolean(rs, "generate_unique_id"));
                 item.setGuildRestrictionEnabled(getColumnBoolean(rs, "guild_restriction_enabled"));
                 item.setBroadcastOnTrade(getColumnBoolean(rs, "broadcast_on_trade"));
-                // New pricing columns (may not exist in old DB, default to 0)
-                item.setVaultBuyPrice(getColumnDouble(rs, "vault_buy_price"));
-                item.setVaultSellPrice(getColumnDouble(rs, "vault_sell_price"));
-                item.setPpBuyPrice(getColumnDouble(rs, "pp_buy_price"));
-                item.setPpSellPrice(getColumnDouble(rs, "pp_sell_price"));
+                item.setAnnouncedAt(getColumnLong(rs, "announced_at"));
+                // Price columns (may not exist in old DB, default to 0) — stored as integer cents
+                item.setVaultBuyPrice(getColumnCents(rs, "vault_buy_price"));
+                item.setVaultSellPrice(getColumnCents(rs, "vault_sell_price"));
+                item.setPpBuyPrice(getColumnCents(rs, "pp_buy_price"));
+                item.setPpSellPrice(getColumnCents(rs, "pp_sell_price"));
                 item.setCustomCurrencyId(getColumnString(rs, "custom_currency_id"));
-                item.setCustomBuyPrice(getColumnDouble(rs, "custom_buy_price"));
-                item.setCustomSellPrice(getColumnDouble(rs, "custom_sell_price"));
+                item.setCustomBuyPrice(getColumnCents(rs, "custom_buy_price"));
+                item.setCustomSellPrice(getColumnCents(rs, "custom_sell_price"));
                 item.setCreatedAt(rs.getLong("created_at"));
                 item.setUpdatedAt(rs.getLong("updated_at"));
                 items.put(item.getId(), item);
@@ -75,6 +83,8 @@ public class ShopManager {
         loadGuildWhitelists();
         // Load custom currency prices from shop_item_prices
         loadCustomCurrencyPrices();
+        // Load per-page titles
+        loadPageTitles();
         // Migrate legacy single custom currency to new multi-currency system
         migrateLegacyCustomCurrency();
         plugin.getLogger().info("Loaded " + items.size() + " shop items.");
@@ -99,6 +109,20 @@ public class ShopManager {
         }
     }
 
+    /** Load per-page titles from shop_page_titles. */
+    private void loadPageTitles() {
+        pageTitles.clear();
+        try (Connection conn = databaseManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT page, title FROM shop_page_titles")) {
+            while (rs.next()) {
+                pageTitles.put(rs.getInt("page"), rs.getString("title"));
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to load page titles", e);
+        }
+    }
+
     /** Load custom currency prices from shop_item_prices table and apply to items. */
     private void loadCustomCurrencyPrices() {
         String sql = "SELECT shop_item_id, currency_id, buy_price, sell_price FROM shop_item_prices";
@@ -108,8 +132,8 @@ public class ShopManager {
             while (rs.next()) {
                 String itemId = rs.getString("shop_item_id");
                 String currencyId = rs.getString("currency_id");
-                double buyPrice = rs.getDouble("buy_price");
-                double sellPrice = rs.getDouble("sell_price");
+                double buyPrice = rs.getLong("buy_price") / 100.0;
+                double sellPrice = rs.getLong("sell_price") / 100.0;
                 ShopItem item = items.get(itemId);
                 if (item != null && currencyManager.getProvider(currencyId).isPresent()) {
                     item.setCustomCurrencyPrice(currencyId, buyPrice, sellPrice);
@@ -138,8 +162,12 @@ public class ShopManager {
     private int getColumnInt(ResultSet rs, String col) {
         try { return rs.getInt(col); } catch (SQLException e) { return 0; }
     }
-    private double getColumnDouble(ResultSet rs, String col) {
-        try { return rs.getDouble(col); } catch (SQLException e) { return 0; }
+    private long getColumnLong(ResultSet rs, String col) {
+        try { return rs.getLong(col); } catch (SQLException e) { return 0; }
+    }
+    /** Read a price column stored as integer cents. */
+    private double getColumnCents(ResultSet rs, String col) {
+        return getColumnLong(rs, col) / 100.0;
     }
     private String getColumnString(ResultSet rs, String col) {
         try { return rs.getString(col); } catch (SQLException e) { return null; }
@@ -154,11 +182,11 @@ public class ShopManager {
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
                 total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
-                guild_restriction_enabled, broadcast_on_trade,
+                guild_restriction_enabled, broadcast_on_trade, announced_at,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON DUPLICATE KEY UPDATE
                 page=VALUES(page), slot=VALUES(slot), display_item=VALUES(display_item), product_item=VALUES(product_item),
                 use_global_defaults=VALUES(use_global_defaults), buy_enabled=VALUES(buy_enabled),
@@ -169,6 +197,7 @@ public class ShopManager {
                 generate_unique_id=VALUES(generate_unique_id),
                 guild_restriction_enabled=VALUES(guild_restriction_enabled),
                 broadcast_on_trade=VALUES(broadcast_on_trade),
+                announced_at=VALUES(announced_at),
                 vault_buy_price=VALUES(vault_buy_price), vault_sell_price=VALUES(vault_sell_price),
                 pp_buy_price=VALUES(pp_buy_price), pp_sell_price=VALUES(pp_sell_price),
                 custom_currency_id=VALUES(custom_currency_id), custom_buy_price=VALUES(custom_buy_price),
@@ -178,11 +207,11 @@ public class ShopManager {
                 use_global_defaults, buy_enabled, sell_enabled, stock, max_stock,
                 cooldown_seconds, permission_required, apply_placeholders,
                 total_limit, total_sold, player_limit, refund_limit, generate_unique_id,
-                guild_restriction_enabled, broadcast_on_trade,
+                guild_restriction_enabled, broadcast_on_trade, announced_at,
                 vault_buy_price, vault_sell_price, pp_buy_price, pp_sell_price,
                 custom_currency_id, custom_buy_price, custom_sell_price,
                 created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """;
         try (Connection conn = databaseManager.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -208,13 +237,14 @@ public class ShopManager {
             ps.setBoolean(i++, item.isGenerateUniqueId());
             ps.setBoolean(i++, item.isGuildRestrictionEnabled());
             ps.setBoolean(i++, item.isBroadcastOnTrade());
-            ps.setDouble(i++, item.getVaultBuyPrice());
-            ps.setDouble(i++, item.getVaultSellPrice());
-            ps.setDouble(i++, item.getPpBuyPrice());
-            ps.setDouble(i++, item.getPpSellPrice());
+            ps.setLong(i++, item.getAnnouncedAt());
+            ps.setLong(i++, PriceUtil.toCents(item.getVaultBuyPrice()));
+            ps.setLong(i++, PriceUtil.toCents(item.getVaultSellPrice()));
+            ps.setLong(i++, PriceUtil.toCents(item.getPpBuyPrice()));
+            ps.setLong(i++, PriceUtil.toCents(item.getPpSellPrice()));
             ps.setString(i++, item.getCustomCurrencyId());
-            ps.setDouble(i++, item.getCustomBuyPrice());
-            ps.setDouble(i++, item.getCustomSellPrice());
+            ps.setLong(i++, PriceUtil.toCents(item.getCustomBuyPrice()));
+            ps.setLong(i++, PriceUtil.toCents(item.getCustomSellPrice()));
             ps.setLong(i++, item.getCreatedAt());
             ps.setLong(i++, item.getUpdatedAt());
             ps.executeUpdate();
@@ -223,6 +253,9 @@ public class ShopManager {
 
         // Save custom currency prices to shop_item_prices table
         saveCustomCurrencyPrices(item);
+
+        // Notify other servers behind BungeeCord to reload
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
     }
 
     public void deleteItem(String id) throws SQLException {
@@ -253,6 +286,9 @@ public class ShopManager {
             }
         }
         items.remove(id);
+
+        // Notify other servers behind BungeeCord to reload
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
     }
 
     /**
@@ -280,6 +316,8 @@ public class ShopManager {
                 }
             }
         }
+        // Notify other servers behind BungeeCord to reload
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
     }
 
     /** Persist custom currency prices for an item to the shop_item_prices table. */
@@ -300,8 +338,8 @@ public class ShopManager {
                         if (currencyManager.getProvider(entry.getKey()).isEmpty()) continue;
                         ps.setString(1, item.getId());
                         ps.setString(2, entry.getKey());
-                        ps.setDouble(3, entry.getValue().buyPrice());
-                        ps.setDouble(4, entry.getValue().sellPrice());
+                        ps.setLong(3, PriceUtil.toCents(entry.getValue().buyPrice()));
+                        ps.setLong(4, PriceUtil.toCents(entry.getValue().sellPrice()));
                         ps.addBatch();
                     }
                     ps.executeBatch();
@@ -406,6 +444,170 @@ public class ShopManager {
             .toList();
     }
 
+    // --- New-item announcements ---
+
+    /**
+     * Get items the given player has not been notified about yet:
+     * announcedAt newer than the player's seen watermark, and visible to them
+     * (guild-restricted items only count when the player is in an allowed
+     * guild). Mirrors the shop listing, which also shows not-yet-tradeable items.
+     */
+    public List<ShopItem> getNewItemsFor(UUID playerUuid) {
+        long seenAt = getNewItemsSeenAt(playerUuid);
+
+        var hook = plugin.getHookManager();
+        Integer playerGuildId = null;
+        if (hook.isGuildEnabled()) {
+            var guild = hook.getGuildBridge().getPlayerGuild(playerUuid);
+            if (guild != null) playerGuildId = guild.id();
+        }
+        final Integer gid = playerGuildId;
+
+        return items.values().stream()
+            .filter(i -> i.getAnnouncedAt() > 0 && i.getAnnouncedAt() > seenAt)
+            .filter(i -> {
+                if (!i.isGuildRestricted()) return true;
+                return gid != null && i.getAllowedGuildIds().contains(gid);
+            })
+            .sorted(Comparator.comparingLong(ShopItem::getAnnouncedAt))
+            .toList();
+    }
+
+    /** The player's seen watermark (0 = never notified). */
+    public long getNewItemsSeenAt(UUID playerUuid) {
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "SELECT seen_at FROM player_new_item_seen WHERE player_uuid = ?")) {
+            ps.setString(1, playerUuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getLong(1);
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to read new-item watermark", e);
+        }
+        return 0;
+    }
+
+    /**
+     * Advance the player's seen watermark, never moving it backwards
+     * (a player notified live of one item still gets older unseen items on join).
+     */
+    public void markNewItemsSeen(UUID playerUuid, long seenAt) {
+        String sql = databaseManager.isMySQL()
+            ? "INSERT INTO player_new_item_seen (player_uuid, seen_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE seen_at = GREATEST(seen_at, VALUES(seen_at))"
+            : "INSERT INTO player_new_item_seen (player_uuid, seen_at) VALUES (?, ?) ON CONFLICT(player_uuid) DO UPDATE SET seen_at = MAX(seen_at, excluded.seen_at)";
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, playerUuid.toString());
+            ps.setLong(2, seenAt);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to update new-item watermark", e);
+        }
+    }
+
+    /**
+     * Re-announce an item: bump its announce marker in DB and in memory.
+     * Uses a targeted UPDATE so unrelated unsaved editor changes are not persisted.
+     */
+    public void setAnnouncedAt(String itemId, long at) throws SQLException {
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "UPDATE shop_items SET announced_at = ? WHERE id = ?")) {
+            ps.setLong(1, at);
+            ps.setString(2, itemId);
+            ps.executeUpdate();
+        }
+        ShopItem item = items.get(itemId);
+        if (item != null) item.setAnnouncedAt(at);
+        // Notify other servers behind BungeeCord to reload
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
+    }
+
+    // --- Page titles ---
+
+    /** The title for a page (raw &-codes), or null when unset. */
+    public String getPageTitle(int page) {
+        return pageTitles.get(page);
+    }
+
+    /** Set a page title. Passing null or an empty title deletes it. */
+    public void setPageTitle(int page, String title) throws SQLException {
+        if (title == null || title.isEmpty()) {
+            deletePageTitle(page);
+            return;
+        }
+        String sql = databaseManager.isMySQL()
+            ? "INSERT INTO shop_page_titles (page, title) VALUES (?, ?) ON DUPLICATE KEY UPDATE title = VALUES(title)"
+            : "INSERT OR REPLACE INTO shop_page_titles (page, title) VALUES (?, ?)";
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, page);
+            ps.setString(2, title);
+            ps.executeUpdate();
+        }
+        pageTitles.put(page, title);
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
+    }
+
+    /** Remove a page's title (no-op when unset). */
+    public void deletePageTitle(int page) throws SQLException {
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "DELETE FROM shop_page_titles WHERE page = ?")) {
+            ps.setInt(1, page);
+            ps.executeUpdate();
+        }
+        pageTitles.remove(page);
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
+    }
+
+    /**
+     * Shift all titles on pages >= fromPage by delta, so titles follow their
+     * pages when pages are inserted or deleted. Titles that would move below
+     * page 0 are dropped.
+     */
+    public void shiftPageTitlesFrom(int fromPage, int delta) throws SQLException {
+        List<Map.Entry<Integer, String>> moved = pageTitles.entrySet().stream()
+            .filter(e -> e.getKey() >= fromPage)
+            .toList();
+        if (moved.isEmpty()) return;
+
+        try (Connection conn = databaseManager.getConnection()) {
+            boolean prevAutoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement del = conn.prepareStatement(
+                         "DELETE FROM shop_page_titles WHERE page >= ?")) {
+                    del.setInt(1, fromPage);
+                    del.executeUpdate();
+                }
+                String insertSql = databaseManager.isMySQL()
+                    ? "INSERT INTO shop_page_titles (page, title) VALUES (?, ?) ON DUPLICATE KEY UPDATE title = VALUES(title)"
+                    : "INSERT OR REPLACE INTO shop_page_titles (page, title) VALUES (?, ?)";
+                try (PreparedStatement ins = conn.prepareStatement(insertSql)) {
+                    for (var entry : moved) {
+                        int newPage = entry.getKey() + delta;
+                        if (newPage < 0) continue;
+                        ins.setInt(1, newPage);
+                        ins.setString(2, entry.getValue());
+                        ins.addBatch();
+                    }
+                    ins.executeBatch();
+                }
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(prevAutoCommit);
+            }
+        }
+        // Reload the in-memory map to match the shifted DB state
+        loadPageTitles();
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
+    }
+
     // --- Cooldowns ---
     public boolean isOnCooldown(UUID playerUuid, ShopItem item) {
         if (item.getCooldownSeconds() <= 0) return false;
@@ -488,6 +690,59 @@ public class ShopManager {
             ps.setString(2, itemId);
             ps.setInt(3, amount);
             ps.executeUpdate();
+        }
+    }
+
+    /** Get all purchase counts for a player (itemId → count), for admin inspection / GUIs. */
+    public Map<String, Integer> getAllPlayerPurchases(UUID puid) throws SQLException {
+        Map<String, Integer> result = new HashMap<>();
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "SELECT shop_item_id, count FROM player_purchases WHERE player_uuid=?")) {
+            ps.setString(1, puid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) result.put(rs.getString("shop_item_id"), rs.getInt("count"));
+            }
+        }
+        return result;
+    }
+
+    /** Total purchase count across all players for one item. */
+    public int getItemPurchaseSum(String itemId) throws SQLException {
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "SELECT COALESCE(SUM(count),0) FROM player_purchases WHERE shop_item_id=?")) {
+            ps.setString(1, itemId);
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) return rs.getInt(1); }
+        }
+        return 0;
+    }
+
+    /** Delete all purchase records for a player. Returns number of rows removed. */
+    public int resetAllPlayerPurchases(UUID puid) throws SQLException {
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "DELETE FROM player_purchases WHERE player_uuid=?")) {
+            ps.setString(1, puid.toString());
+            return ps.executeUpdate();
+        }
+    }
+
+    /** Delete all purchase records for one item (server-wide). Returns number of rows removed. */
+    public int resetItemPurchases(String itemId) throws SQLException {
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "DELETE FROM player_purchases WHERE shop_item_id=?")) {
+            ps.setString(1, itemId);
+            return ps.executeUpdate();
+        }
+    }
+
+    /** Delete every purchase record. Returns number of rows removed. */
+    public int resetAllPurchases() throws SQLException {
+        try (Connection conn = databaseManager.getConnection();
+             Statement stmt = conn.createStatement()) {
+            return stmt.executeUpdate("DELETE FROM player_purchases");
         }
     }
 }

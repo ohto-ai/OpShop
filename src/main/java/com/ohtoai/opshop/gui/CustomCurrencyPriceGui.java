@@ -209,9 +209,6 @@ public class CustomCurrencyPriceGui implements GuiHolder {
     }
 
     private String formatPrice(double price) {
-        if (price == Math.floor(price) && !Double.isInfinite(price)) {
-            return String.valueOf((long) price);
-        }
-        return String.format("%.2f", price);
+        return com.ohtoai.opshop.shop.PriceUtil.format(price);
     }
 }

@@ -14,6 +14,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,6 +81,27 @@ public class PurchaseGui implements GuiHolder {
             if (shopItem.isApplyPlaceholders()) {
                 displayItem = com.ohtoai.opshop.item.PlaceholderReplacer.applyPreview(displayItem, player);
             }
+            // Purchase limit info on the preview
+            if (shopItem.getTotalLimit() >= 0 || shopItem.getPlayerLimit() >= 0) {
+                ItemMeta previewMeta = displayItem.getItemMeta();
+                List<net.kyori.adventure.text.Component> previewLore = previewMeta.hasLore()
+                    ? new ArrayList<>(previewMeta.lore()) : new ArrayList<>();
+                previewLore.add(net.kyori.adventure.text.Component.empty());
+                if (shopItem.getTotalLimit() >= 0) {
+                    int remaining = Math.max(0, shopItem.getTotalLimit() - shopItem.getTotalSold());
+                    previewLore.add(GuiUtils.toComponent(com.ohtoai.opshop.config.Messages.colorize(
+                        m("gui.limit-remaining-total", "&cTotal limit: &f{remaining}&c/{limit} &7left",
+                            "{remaining}", String.valueOf(remaining), "{limit}", String.valueOf(shopItem.getTotalLimit())))));
+                }
+                if (shopItem.getPlayerLimit() >= 0) {
+                    int remaining = Math.max(0, shopItem.getPlayerLimit() - fetchPlayerBought(player));
+                    previewLore.add(GuiUtils.toComponent(com.ohtoai.opshop.config.Messages.colorize(
+                        m("gui.limit-remaining-player", "&cYour limit: &f{remaining}&c/{limit} &7left",
+                            "{remaining}", String.valueOf(remaining), "{limit}", String.valueOf(shopItem.getPlayerLimit())))));
+                }
+                previewMeta.lore(previewLore);
+                displayItem.setItemMeta(previewMeta);
+            }
             inventory.setItem(SLOT_ITEM, displayItem);
         }
 
@@ -100,6 +122,8 @@ public class PurchaseGui implements GuiHolder {
                     m("gui.purchase.no-methods-2", "&7Contact an administrator"))));
         } else {
             int limit = Math.min(buyPrices.size(), CURRENCY_SLOTS.length);
+            int remaining = minRemaining(player);
+            boolean overLimit = remaining >= 0 && quantity > remaining;
             for (int i = 0; i < limit; i++) {
                 PriceConfig pc = buyPrices.get(i);
                 double total = pc.getBuyPrice() * quantity;
@@ -118,15 +142,19 @@ public class PurchaseGui implements GuiHolder {
                 lore.add("");
                 lore.add(m("gui.purchase.balance", "&7Your balance: &f{balance}", "{balance}", currencyManager.format(currencyId, balance)));
                 lore.add("");
-                if (canAfford) {
+                if (overLimit) {
+                    lore.add(m("gui.limit-reached", "&c&lPurchase limit reached!"));
+                    lore.add(m("gui.limit-can-buy", "&7You can only buy &f{remaining} &7more",
+                        "{remaining}", String.valueOf(Math.max(0, remaining))));
+                } else if (canAfford) {
                     lore.add(m("gui.purchase.click-to-purchase", "&a&lClick to purchase!"));
                 } else {
                     lore.add(m("gui.purchase.not-enough", "&cNot enough {currency}!", "{currency}", currencyName));
                     lore.add(m("gui.purchase.need-more", "&7You need {amount} &7more", "{amount}", currencyManager.format(currencyId, total - balance)));
                 }
                 inventory.setItem(CURRENCY_SLOTS[i], GuiUtils.makeItem(
-                    canAfford ? Material.LIME_WOOL : Material.RED_WOOL,
-                    (canAfford ? "&a&l" : "&c&l") + m("gui.purchase.buy-with", "Buy with {currency}", "{currency}", currencyName),
+                    !overLimit && canAfford ? Material.LIME_WOOL : Material.RED_WOOL,
+                    (!overLimit && canAfford ? "&a&l" : "&c&l") + m("gui.purchase.buy-with", "Buy with {currency}", "{currency}", currencyName),
                     lore));
             }
         }
@@ -178,6 +206,15 @@ public class PurchaseGui implements GuiHolder {
     }
 
     public void executePurchase(Player player, String currencyId) {
+        // Pre-check limits in the GUI so the player gets immediate feedback
+        int limitRemaining = minRemaining(player);
+        if (limitRemaining >= 0 && quantity > limitRemaining) {
+            player.sendMessage(plugin.getMessages().getPrefix()
+                + m("gui.purchase.limit-exceeded", "&cYou can only buy &f{remaining} &cmore of this item!",
+                    "{remaining}", String.valueOf(Math.max(0, limitRemaining))));
+            buildInventory(player);
+            return;
+        }
         TransactionProcessor.Result result = transactionProcessor.buy(
             player, shopItem.getId(), currencyId, quantity);
 
@@ -247,8 +284,29 @@ public class PurchaseGui implements GuiHolder {
     }
 
     private String formatPrice(double price) {
-        if (price == Math.floor(price)) return String.valueOf((long) price);
-        return String.format("%.2f", price);
+        return com.ohtoai.opshop.shop.PriceUtil.format(price);
+    }
+
+    // --- Purchase limit helpers ---
+
+    /** The player's purchase count for this item (0 on DB error). */
+    private int fetchPlayerBought(Player player) {
+        try {
+            return shopManager.getPlayerPurchaseCount(player.getUniqueId(), shopItem.getId());
+        } catch (java.sql.SQLException e) {
+            return 0;
+        }
+    }
+
+    /** Remaining purchases for the player (player + total combined), or -1 when unlimited. */
+    private int minRemaining(Player player) {
+        int playerRemaining = shopItem.getPlayerLimit() >= 0
+            ? Math.max(0, shopItem.getPlayerLimit() - fetchPlayerBought(player)) : -1;
+        int totalRemaining = shopItem.getTotalLimit() >= 0
+            ? Math.max(0, shopItem.getTotalLimit() - shopItem.getTotalSold()) : -1;
+        if (playerRemaining < 0) return totalRemaining;
+        if (totalRemaining < 0) return playerRemaining;
+        return Math.min(playerRemaining, totalRemaining);
     }
 
     private String formatCooldown(long seconds) {

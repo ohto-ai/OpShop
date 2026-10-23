@@ -23,6 +23,15 @@ guild-locked: "&c该物品仅限特定公会成员购买！"
 total-limit-reached: "&c该物品已达到全局购买上限！"
 player-limit-reached: "&c你已达到该物品的个人购买上限！"
 
+# --- 物品上新通知 ---
+new-items:
+  header: "&6&l新上架物品！"
+  entry: "  &7- &f{name}&r &8[{id}]"
+  more: "  &7... 还有 &f{count} &7件新品"
+  hover: "&e点击打开交易界面"
+  click-hint: "&7点击物品名可直接打开交易界面"
+  announce-refreshed: "&a已刷新 &e{id} &a的上新通知 — 玩家将收到通知。"
+
 # --- GUI ---
 gui:
   prev-page: "&a← 上一页"
@@ -61,6 +70,10 @@ gui:
   sell-x: "&6出售 x{qty}"
   buy-x-desc: "&7购买 &f{qty}x &7花费 &f{price} {currency}"
   sell-x-desc: "&7出售 &f{qty}x &7获得 &f{price} {currency}"
+  limit-remaining-total: "&c全局限购剩余: &f{remaining}&c/{limit}"
+  limit-remaining-player: "&c你的限购剩余: &f{remaining}&c/{limit}"
+  limit-reached: "&c&l已达限购上限！"
+  limit-can-buy: "&7你最多还能购买 &f{remaining} &7个"
 
   # Purchase GUI
   purchase:
@@ -76,6 +89,7 @@ gui:
     total: "&7总价: &f{price} {currency}"
     balance: "&7你的余额: &f{balance}"
     quantity: "&7点击选择数量: {qty}"
+    limit-exceeded: "&c该商品你最多还能购买 &f{remaining} &c个！"
 
   # Sell GUI
   sell:
@@ -230,6 +244,7 @@ editor:
   player-limit: "&e个人限购: {value}"
   player-limit-unlimited: "&a不限"
   limit-controls: "&7左+1 右-1 Shift左+10 Shift右-10 Q=不限"
+  total-sold-progress: "&7已售: &f{sold}&7/&f{limit}"
 
   # Price editor controls
   price-controls-1: "&7左键: +1 | 右键: -1"
@@ -337,6 +352,26 @@ editor:
   anvil-esc-hint: "&7按 &oESC &7取消"
   anvil-type-price: "&7输入新价格"
   back-to-list-desc: "&7返回物品列表"
+  announce-refresh: "&d🔔 刷新上新通知"
+  announce-refresh-desc-1: "&7将本物品重新标记为新上架。"
+  announce-refresh-desc-2: "&7在线玩家立即收到通知，"
+  announce-refresh-desc-3: "&7其他玩家下次上线时看到。"
+  price-min: "&c价格必须为 &f0 &c或至少 &f0.01&c。"
+  price-integer-only: "&c自定义货币仅支持整数价格！"
+
+  # 页面标题
+  page-title-btn: "&d📝 设置页面标题"
+  page-title-desc-1: "&7设置打开此页面时显示的标题。"
+  page-title-desc-2: "&7支持 & / RGB 颜色代码。Shift+点击清除。"
+  page-title-desc-3: "&7拖放命名牌：直接使用其彩色名字作为标题。"
+  page-title-current: "&7标题: &f{title}"
+  page-title-anvil-hint: "&7输入页面标题（支持 & 颜色代码）"
+  page-title-placeholder: "新标题"
+  page-title-set: "&a第 {page} 页标题已设置为: &r{title}"
+  page-title-cleared: "&a第 {page} 页标题已清除。"
+  page-title-cancelled: "&7标题未更改。"
+  page-title-nametag-empty: "&c该命名牌没有名字！请先在铁砧上命名。"
+  db-error-title: "&c保存页面标题失败！"
 
 # --- Currency ---
 currency:
@@ -359,8 +394,9 @@ currency:
 command:
   version: "&6OShop v{version}"
   help-header: "&6=== OShop 命令 ==="
-  help-open: "&e/oshop &7— 打开商店"
-  help-open-player: "&e/oshop open [玩家] &7— 为玩家打开商店"
+  help-open: "&e/oshop [页码] &7— 打开商店（可指定页码）"
+  help-item: "&e/oshop item <物品ID> &7— 直接打开商品交易界面"
+  help-open-player: "&e/oshop open [玩家] [页码] &7— 为玩家打开商店"
   help-guild: "&e/oshop guild [公会名] &7— 查看公会商店"
   help-guild-all: "&e/oshop guild-all &7— 列出所有公会商店"
   help-sell: "&e/oshop sell [玩家] &7— 打开出售模式"
@@ -380,7 +416,8 @@ command:
   admin-log: "&e/oshop admin log [player|item] [页码] &7— 在聊天中查看交易记录"
   admin-view: "&e/oshop admin view [player|item] &7— 在 GUI 中查看交易记录"
   admin-reload: "&e/oshop admin reload &7— 重新加载配置"
-  admin-resetlimit: "&e/oshop admin resetlimit <玩家> <id> &7— 重置玩家购买限额"
+  admin-resetlimit: "&e/oshop admin resetlimit <玩家|all> <id|all> &7— 重置购买限额"
+  admin-limitinfo: "&e/oshop admin limitinfo <玩家> [id] &7— 查看购买限额进度"
   admin-trace: "&e/oshop admin trace <list|log|view> [...] &7— 追溯ID管理"
   admin-importsqlite: "&e/oshop admin importsqlite [文件] &7— 将 SQLite 数据导入 MySQL"
   importsqlite-only-mysql: "&c此命令仅在当前使用 MySQL 数据库时可用。"
@@ -389,9 +426,20 @@ command:
   importsqlite-complete: "&a导入完成！已处理 {tables} 张表。"
   importsqlite-table-result: "&7  {table}: &a已导入 {imported} &7, &e跳过 {skipped}"
   importsqlite-error: "&c导入失败: {error}"
-  resetlimit-usage: "&c用法: /oshop admin resetlimit <玩家> <物品ID>"
+  resetlimit-usage: "&c用法: /oshop admin resetlimit <玩家|all> <物品ID|all>"
   resetlimit-done: "&a已重置 {player} 在 {item} 的购买限额。"
+  resetlimit-all-player: "&a已重置 {player} 全部商品的购买限额。&7(清理 {rows} 条记录，退还 {count} 次)"
+  resetlimit-all-item: "&a已重置全部玩家在 {item} 的购买限额。&7(清理 {rows} 条记录，退还 {count} 次)"
+  resetlimit-all-all: "&a已重置全部购买限额。&7(清理 {rows} 条记录，清零 {items} 个全局计数器)"
+  limitinfo-usage: "&c用法: /oshop admin limitinfo <玩家> [物品ID]"
+  limitinfo-header: "&e===== {player} 的购买限额 ====="
+  limitinfo-item-header: "&e===== {item} 限额 ({player}) ====="
+  limitinfo-none: "&7该玩家没有任何购买记录或限额。"
+  limitinfo-entry: "&f{id} &7— 个人 &f{bought}/{plimit} &7(剩余 &f{premaining}&7) | 全局 &f{sold}/{tlimit} &7(剩余 &f{tremaining}&7)"
+  limitinfo-error: "&c读取购买限额时出错！"
   open-shop-for: "&a已为 {player} 打开商店"
+  item-usage: "&c用法: /oshop item <物品ID>"
+  console-no-item: "控制台无法打开商品交易界面。"
   console-specify-open: "控制台必须指定玩家: /oshop open <玩家>"
   console-no-editor: "控制台无法打开编辑器 GUI。"
   console-no-add: "控制台无法添加物品，请使用编辑器。"
@@ -531,3 +579,7 @@ guild-whitelist:
 
 # --- Transaction Log ---
 log-record: "&7{time} &f{player} &7{type} &f{count}x {item} &7花费 &f{price} {currency}"
+
+# --- BungeeCord Sync ---
+bungee-sync-received: "&a已从其他服务器收到刷新通知，数据已更新。"
+bungee-sync-sent: "&7已通知其他服务器刷新数据。"

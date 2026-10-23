@@ -23,6 +23,13 @@ public class PlayerListener implements Listener {
             plugin.getLogger().info("Player joined: " + event.getPlayer().getName()
                 + " — shop items: " + plugin.getShopManager().getItemCount());
         }
+        // New-item notification — delayed so it doesn't clash with other join messages
+        org.bukkit.entity.Player player = event.getPlayer();
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline()) {
+                plugin.getNewItemNotifier().sendJoinNotification(player);
+            }
+        }, 60L); // 3 seconds
     }
 
     @EventHandler

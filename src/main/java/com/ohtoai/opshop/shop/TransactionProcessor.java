@@ -144,7 +144,7 @@ public class TransactionProcessor {
             return Result.CURRENCY_UNAVAILABLE;
         }
 
-        double totalCost = selectedPrice.getBuyPrice() * quantity;
+        double totalCost = PriceUtil.round2(selectedPrice.getBuyPrice() * quantity);
 
         // Get the currency provider
         Optional<CurrencyProvider> providerOpt = currencyManager.getProvider(currencyId);
@@ -361,7 +361,7 @@ public class TransactionProcessor {
         player.updateInventory();
 
         // Deposit currency
-        double totalEarned = selectedPrice.getSellPrice() * quantity;
+        double totalEarned = PriceUtil.round2(selectedPrice.getSellPrice() * quantity);
         Optional<CurrencyProvider> providerOpt = currencyManager.getProvider(currencyId);
         if (providerOpt.isEmpty()) {
             // Refund items — packSize * quantity to restore the full item count

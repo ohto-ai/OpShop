@@ -14,6 +14,10 @@ import org.jetbrains.annotations.NotNull;
  *   %opshop_currency_<id>%        — balance of a specific currency
  *   %opshop_currency_<id>_name%   — display name of a currency
  *   %opshop_item_count%           — total number of shop items
+ *   %opshop_limit_<itemId>%              — remaining purchases for the player ("∞" = no limit)
+ *   %opshop_limit_bought_<itemId>%       — purchases made by the player so far
+ *   %opshop_limit_total_<itemId>%        — remaining global purchases ("∞" = no limit)
+ *   %opshop_limit_total_bought_<itemId>% — global purchases so far
  */
 public class OpShopExpansion extends PlaceholderExpansion {
 
@@ -74,6 +78,47 @@ public class OpShopExpansion extends PlaceholderExpansion {
             if (provider.isPresent()) {
                 double balance = provider.get().getBalance(player);
                 return provider.get().format(balance);
+            }
+        }
+
+        // Purchase limit placeholders (check longest prefixes first)
+        if (params.startsWith("limit_")) {
+            String rest = params.substring("limit_".length());
+
+            // %opshop_limit_total_bought_<itemId>%
+            if (rest.startsWith("total_bought_")) {
+                String itemId = rest.substring("total_bought_".length());
+                return shopManager.getItem(itemId)
+                    .map(i -> String.valueOf(i.getTotalSold())).orElse(null);
+            }
+            // %opshop_limit_total_<itemId>%
+            if (rest.startsWith("total_")) {
+                String itemId = rest.substring("total_".length());
+                var item = shopManager.getItem(itemId);
+                if (item.isEmpty()) return null;
+                if (item.get().getTotalLimit() < 0) return "∞";
+                return String.valueOf(Math.max(0, item.get().getTotalLimit() - item.get().getTotalSold()));
+            }
+            // %opshop_limit_bought_<itemId>%
+            if (rest.startsWith("bought_")) {
+                String itemId = rest.substring("bought_".length());
+                if (player == null || shopManager.getItem(itemId).isEmpty()) return null;
+                try {
+                    return String.valueOf(shopManager.getPlayerPurchaseCount(player.getUniqueId(), itemId));
+                } catch (java.sql.SQLException e) {
+                    return null;
+                }
+            }
+            // %opshop_limit_<itemId>% — remaining purchases for the player
+            String itemId = rest;
+            var item = shopManager.getItem(itemId);
+            if (item.isEmpty() || player == null) return null;
+            if (item.get().getPlayerLimit() < 0) return "∞";
+            try {
+                int bought = shopManager.getPlayerPurchaseCount(player.getUniqueId(), itemId);
+                return String.valueOf(Math.max(0, item.get().getPlayerLimit() - bought));
+            } catch (java.sql.SQLException e) {
+                return null;
             }
         }
 

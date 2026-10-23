@@ -34,7 +34,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            // /oshop with no args = open shop
+            // /oshop with no args = open shop at page 1
             if (!(sender instanceof Player player)) {
                 sendHelp(sender);
                 return true;
@@ -47,8 +47,23 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // /oshop [page] — open the shop directly at a page (GUI pages are 1-indexed)
+        if (args[0].matches("\\d+")) {
+            if (!(sender instanceof Player player)) {
+                sendHelp(sender);
+                return true;
+            }
+            if (!player.hasPermission("opshop.use")) {
+                player.sendMessage(plugin.getMessages().get("no-permission"));
+                return true;
+            }
+            plugin.getShopMainGui().open(player, parsePageArg(args[0]));
+            return true;
+        }
+
         return switch (args[0].toLowerCase()) {
             case "open" -> handleOpen(sender, args);
+            case "item" -> handleItem(sender, Arrays.copyOfRange(args, 1, args.length));
             case "guild" -> handleGuild(sender, Arrays.copyOfRange(args, 1, args.length));
             case "guild-all" -> handleGuildAll(sender);
             case "admin" -> handleAdmin(sender, Arrays.copyOfRange(args, 1, args.length));
@@ -62,6 +77,12 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean handleOpen(CommandSender sender, String[] args) {
+        // /oshop open [player] [page] — opening for another player requires admin;
+        // without a player it opens for the sender (page is always optional).
+        int page = 0;
+        if (args.length > 2 && args[2].matches("\\d+")) {
+            page = parsePageArg(args[2]);
+        }
         Player target;
         if (args.length > 1) {
             // Opening for another player requires admin
@@ -85,11 +106,62 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             }
             target = player;
         }
-        plugin.getShopMainGui().open(target);
+        plugin.getShopMainGui().open(target, page);
         if (sender != target) {
             sender.sendMessage(plugin.getMessages().getPrefix()
                 + plugin.getMessages().get("command.open-shop-for", "&aOpened shop for {player}", "{player}", target.getName()));
         }
+        return true;
+    }
+
+    /** /oshop item <itemId> — open the trade view for a specific item directly. */
+    private boolean handleItem(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("command.console-no-item", "Console must specify a player: /oshop open <player>")));
+            return true;
+        }
+        if (!player.hasPermission("opshop.use")) {
+            player.sendMessage(plugin.getMessages().get("no-permission"));
+            return true;
+        }
+        if (args.length == 0) {
+            player.sendMessage(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("command.item-usage", "&cUsage: /oshop item <itemId>"));
+            return true;
+        }
+        String itemId = cleanId(joinArgs(args, 0, args.length));
+        var itemOpt = plugin.getShopManager().getItem(itemId);
+        if (itemOpt.isEmpty()) {
+            player.sendMessage(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("item-not-found", "&cShop item not found."));
+            return true;
+        }
+        ShopItem item = itemOpt.get();
+
+        // Guild-restricted items stay hidden from non-members (mirrors shop filtering)
+        if (item.isGuildRestricted()) {
+            var hook = plugin.getHookManager();
+            var guild = hook.isGuildEnabled()
+                ? hook.getGuildBridge().getPlayerGuild(player.getUniqueId()) : null;
+            if (guild == null || !item.getAllowedGuildIds().contains(guild.id())) {
+                player.sendMessage(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("item-not-found", "&cShop item not found."));
+                return true;
+            }
+        }
+        if (!item.isBuyEnabled() && !item.isSellEnabled()) {
+            player.sendMessage(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("gui.item-not-available", "&cThis item is not available for trade."));
+            return true;
+        }
+
+        // Back button should land on the item's page
+        plugin.getShopMainGui().setCurrentPage(item.getPage());
+        player.closeInventory();
+        new com.ohtoai.opshop.gui.ItemDetailGui(plugin, plugin.getShopMainGui(), item,
+            plugin.getTransactionProcessor(), plugin.getShopManager(), plugin.getCurrencyManager())
+            .open(player);
         return true;
     }
 
@@ -188,6 +260,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             case "reload" -> handleReload(sender);
             case "currency" -> handleCurrency(sender, Arrays.copyOfRange(args, 1, args.length));
             case "resetlimit" -> handleResetLimit(sender, args);
+            case "limitinfo" -> handleLimitInfo(sender, args);
             case "log" -> handleLog(sender, Arrays.copyOfRange(args, 1, args.length));
             case "view" -> handleView(sender, Arrays.copyOfRange(args, 1, args.length));
             case "trace" -> handleTrace(sender, Arrays.copyOfRange(args, 1, args.length));
@@ -606,8 +679,22 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         }
 
         try {
-            double buy = Double.parseDouble(args[args.length - 2]);
-            double sell = Double.parseDouble(args[args.length - 1]);
+            double buy = com.ohtoai.opshop.shop.PriceUtil.round2(
+                Double.parseDouble(args[args.length - 2]));
+            double sell = com.ohtoai.opshop.shop.PriceUtil.round2(
+                Double.parseDouble(args[args.length - 1]));
+            for (double v : new double[]{buy, sell}) {
+                if (v < 0 || Math.abs(v) > com.ohtoai.opshop.shop.PriceUtil.MAX_PRICE) {
+                    sender.sendMessage(plugin.getMessages().getPrefix()
+                        + plugin.getMessages().get("editor.invalid-price", "&cInvalid price."));
+                    return true;
+                }
+                if (v != 0 && v < com.ohtoai.opshop.shop.PriceUtil.MIN_PRICE) {
+                    sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                        + plugin.getMessages().get("editor.price-min", "&cPrice must be &f0 &cor at least &f0.01&c.")));
+                    return true;
+                }
+            }
             plugin.getCurrencyManager().setGlobalDefault(currencyId, buy, sell);
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
                 + plugin.getMessages().get("command.currency-setglobal-done", "&aGlobal default for &e{id} &aset: buy={buy} sell={sell}",
@@ -621,25 +708,91 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     // --- Reset Limit ---
 
     private boolean handleResetLimit(CommandSender sender, String[] args) {
-        // Permission already checked by handleAdmin; args[0]="resetlimit", args[1]=player, args[2..]=itemId
+        // Permission already checked by handleAdmin; args[0]="resetlimit", args[1]=player|all, args[2..]=itemId|all
         if (args.length < 3) {
             sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
-                + plugin.getMessages().get("command.resetlimit-usage", "&cUsage: /oshop admin resetlimit <player> <itemId>")));
+                + plugin.getMessages().get("command.resetlimit-usage", "&cUsage: /oshop admin resetlimit <player|all> <itemId|all>")));
             return true;
         }
-        // Support offline players — use getOfflinePlayer
-        var target = Bukkit.getOfflinePlayer(args[1]);
-        if (!target.hasPlayedBefore() && !target.isOnline()) {
-            sender.sendMessage(plugin.getMessages().getPrefix()
-                + plugin.getMessages().get("player-not-found", "&cPlayer not found."));
-            return true;
-        }
+        boolean allPlayers = args[1].equalsIgnoreCase("all");
         String itemId = cleanId(joinArgs(args, 2, args.length));
-        if (plugin.getShopManager().getItem(itemId).isEmpty()) {
-            sender.sendMessage(plugin.getMessages().get("item-not-found"));
-            return true;
-        }
+        boolean allItems = itemId.equalsIgnoreCase("all");
+
         try {
+            // /oshop admin resetlimit all all — wipe every record and zero totalSold
+            if (allPlayers && allItems) {
+                int rows = plugin.getShopManager().resetAllPurchases();
+                int itemsReset = 0;
+                for (ShopItem si : plugin.getShopManager().getAllItems()) {
+                    if (si.getTotalLimit() >= 0 && si.getTotalSold() > 0) {
+                        si.setTotalSold(0);
+                        plugin.getShopManager().saveItem(si);
+                        itemsReset++;
+                    }
+                }
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                    + plugin.getMessages().get("command.resetlimit-all-all",
+                        "&aReset all purchase limits. &7(cleared {rows} record(s), zeroed {items} total counter(s))",
+                        "{rows}", String.valueOf(rows), "{items}", String.valueOf(itemsReset))));
+                return true;
+            }
+
+            // /oshop admin resetlimit all <itemId> — reset one item for every player
+            if (allPlayers) {
+                if (plugin.getShopManager().getItem(itemId).isEmpty()) {
+                    sender.sendMessage(plugin.getMessages().get("item-not-found"));
+                    return true;
+                }
+                int refunded = plugin.getShopManager().getItemPurchaseSum(itemId);
+                int rows = plugin.getShopManager().resetItemPurchases(itemId);
+                if (refunded > 0) {
+                    var s = plugin.getShopManager().getItem(itemId).orElse(null);
+                    if (s != null) {
+                        s.setTotalSold(Math.max(0, s.getTotalSold() - refunded));
+                        plugin.getShopManager().saveItem(s);
+                    }
+                }
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                    + plugin.getMessages().get("command.resetlimit-all-item",
+                        "&aReset purchase limit for all players on {item}. &7(cleared {rows} record(s), refunded {count})",
+                        "{item}", itemId, "{rows}", String.valueOf(rows), "{count}", String.valueOf(refunded))));
+                return true;
+            }
+
+            // Support offline players — use getOfflinePlayer
+            var target = Bukkit.getOfflinePlayer(args[1]);
+            if (!target.hasPlayedBefore() && !target.isOnline()) {
+                sender.sendMessage(plugin.getMessages().getPrefix()
+                    + plugin.getMessages().get("player-not-found", "&cPlayer not found."));
+                return true;
+            }
+
+            // /oshop admin resetlimit <player> all — reset all items for one player
+            if (allItems) {
+                Map<String, Integer> counts = plugin.getShopManager().getAllPlayerPurchases(target.getUniqueId());
+                int rows = plugin.getShopManager().resetAllPlayerPurchases(target.getUniqueId());
+                int refunded = 0;
+                for (var entry : counts.entrySet()) {
+                    var s = plugin.getShopManager().getItem(entry.getKey()).orElse(null);
+                    if (s != null && entry.getValue() > 0) {
+                        s.setTotalSold(Math.max(0, s.getTotalSold() - entry.getValue()));
+                        plugin.getShopManager().saveItem(s);
+                        refunded += entry.getValue();
+                    }
+                }
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                    + plugin.getMessages().get("command.resetlimit-all-player",
+                        "&aReset purchase limits for {player} on all items. &7(cleared {rows} record(s), refunded {count})",
+                        "{player}", target.getName() != null ? target.getName() : args[1],
+                        "{rows}", String.valueOf(rows), "{count}", String.valueOf(refunded))));
+                return true;
+            }
+
+            // Single player + single item (original behavior)
+            if (plugin.getShopManager().getItem(itemId).isEmpty()) {
+                sender.sendMessage(plugin.getMessages().get("item-not-found"));
+                return true;
+            }
             int oldCount = plugin.getShopManager().resetPlayerPurchase(target.getUniqueId(), itemId);
             // Also refund the global totalSold counter
             if (oldCount > 0) {
@@ -662,6 +815,81 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
             plugin.getLogger().log(Level.WARNING, "Failed to reset player purchase limit", e);
         }
         return true;
+    }
+
+    // --- Limit Info ---
+
+    private boolean handleLimitInfo(CommandSender sender, String[] args) {
+        // args[0]="limitinfo", args[1]=player, args[2..]=optional itemId
+        if (args.length < 2) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                + plugin.getMessages().get("command.limitinfo-usage", "&cUsage: /oshop admin limitinfo <player> [itemId]")));
+            return true;
+        }
+        var target = Bukkit.getOfflinePlayer(args[1]);
+        if (!target.hasPlayedBefore() && !target.isOnline()) {
+            sender.sendMessage(plugin.getMessages().getPrefix()
+                + plugin.getMessages().get("player-not-found", "&cPlayer not found."));
+            return true;
+        }
+        String playerName = target.getName() != null ? target.getName() : args[1];
+        try {
+            Map<String, Integer> counts = plugin.getShopManager().getAllPlayerPurchases(target.getUniqueId());
+
+            // Single item view
+            if (args.length >= 3) {
+                String itemId = cleanId(joinArgs(args, 2, args.length));
+                var si = plugin.getShopManager().getItem(itemId);
+                if (si.isEmpty()) {
+                    sender.sendMessage(plugin.getMessages().get("item-not-found"));
+                    return true;
+                }
+                sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                    + plugin.getMessages().get("command.limitinfo-item-header",
+                        "&e===== Limit: {item} ({player}) =====",
+                        "{item}", itemId, "{player}", playerName)));
+                sendLimitInfoEntry(sender, si.get(), counts.getOrDefault(itemId, 0));
+                return true;
+            }
+
+            // Full list — items with limits configured or records for this player
+            List<ShopItem> limited = plugin.getShopManager().getAllItems().stream()
+                .filter(i -> i.getPlayerLimit() >= 0 || i.getTotalLimit() >= 0 || counts.containsKey(i.getId()))
+                .sorted(Comparator.comparing(ShopItem::getId))
+                .toList();
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                + plugin.getMessages().get("command.limitinfo-header",
+                    "&e===== Purchase limits: {player} =====", "{player}", playerName)));
+            if (limited.isEmpty()) {
+                sender.sendMessage(plugin.getMessages().get("command.limitinfo-none",
+                    "&7No purchase records or limits for this player."));
+                return true;
+            }
+            for (ShopItem si : limited) {
+                sendLimitInfoEntry(sender, si, counts.getOrDefault(si.getId(), 0));
+            }
+        } catch (SQLException e) {
+            sender.sendMessage(Messages.colorize(plugin.getMessages().get("prefix")
+                + plugin.getMessages().get("command.limitinfo-error", "&cError reading purchase limits!")));
+            plugin.getLogger().log(Level.WARNING, "Failed to read player purchase limits", e);
+        }
+        return true;
+    }
+
+    private void sendLimitInfoEntry(CommandSender sender, ShopItem item, int bought) {
+        String unlimited = "∞";
+        String line = plugin.getMessages().get("command.limitinfo-entry",
+            "&f{id} &7— player &f{bought}/{plimit} &7(left &f{premaining}&7) | total &f{sold}/{tlimit} &7(left &f{tremaining}&7)",
+            "{id}", item.getId(),
+            "{bought}", String.valueOf(bought),
+            "{plimit}", item.getPlayerLimit() >= 0 ? String.valueOf(item.getPlayerLimit()) : unlimited,
+            "{premaining}", item.getPlayerLimit() >= 0
+                ? String.valueOf(Math.max(0, item.getPlayerLimit() - bought)) : unlimited,
+            "{sold}", String.valueOf(item.getTotalSold()),
+            "{tlimit}", item.getTotalLimit() >= 0 ? String.valueOf(item.getTotalLimit()) : unlimited,
+            "{tremaining}", item.getTotalLimit() >= 0
+                ? String.valueOf(Math.max(0, item.getTotalLimit() - item.getTotalSold())) : unlimited);
+        sender.sendMessage(Messages.colorize(line));
     }
 
     // --- Log (chat-based transaction viewer) ---
@@ -1083,8 +1311,9 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     private void sendHelp(CommandSender sender) {
         var m = plugin.getMessages();
         sender.sendMessage(m.get("command.help-header", "&6=== OShop Commands ==="));
-        sender.sendMessage(m.get("command.help-open", "&e/oshop &7— Open the shop"));
-        sender.sendMessage(m.get("command.help-open-player", "&e/oshop open [player] &7— Open shop for a player"));
+        sender.sendMessage(m.get("command.help-open", "&e/oshop [page] &7— Open the shop (optionally at a page)"));
+        sender.sendMessage(m.get("command.help-item", "&e/oshop item <itemId> &7— Open an item's trade view directly"));
+        sender.sendMessage(m.get("command.help-open-player", "&e/oshop open [player] [page] &7— Open shop for a player"));
         sender.sendMessage(m.get("command.help-guild", "&e/oshop guild [name] &7— View guild shop"));
         sender.sendMessage(m.get("command.help-guild-all", "&e/oshop guild-all &7— List guild shops"));
         sender.sendMessage(m.get("command.help-admin", "&e/oshop admin &7— Admin commands"));
@@ -1107,7 +1336,8 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(m.get("command.admin-log", "&e/oshop admin log [player|item] [page] &7— View transactions in chat"));
         sender.sendMessage(m.get("command.admin-view", "&e/oshop admin view [player|item] &7— View transactions in GUI"));
         sender.sendMessage(m.get("command.admin-reload", "&e/oshop admin reload &7— Reload config"));
-        sender.sendMessage(m.get("command.admin-resetlimit", "&e/oshop admin resetlimit <player> <id> &7— Reset player purchase limit"));
+        sender.sendMessage(m.get("command.admin-resetlimit", "&e/oshop admin resetlimit <player|all> <id|all> &7— Reset purchase limits"));
+        sender.sendMessage(m.get("command.admin-limitinfo", "&e/oshop admin limitinfo <player> [id] &7— Show purchase limit progress"));
         sender.sendMessage(m.get("command.admin-importsqlite", "&e/oshop admin importsqlite [file] &7— Import SQLite data into MySQL"));
         sender.sendMessage(m.get("trace.help-list-item", "&e/oshop admin trace list item <item> &7— List trace records for an item"));
         sender.sendMessage(m.get("trace.help-list-player", "&e/oshop admin trace list player <player> &7— List trace records for a player"));
@@ -1120,7 +1350,17 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(List.of("open", "guild", "guild-all", "admin", "version"), args[0]);
+            return filter(List.of("open", "item", "guild", "guild-all", "admin", "version"), args[0]);
+        }
+
+        if (args[0].equalsIgnoreCase("item")) {
+            if (args.length == 2) {
+                return plugin.getShopManager().getAllItems().stream()
+                    .map(ShopItem::getId).map(OpShopCommand::quoteIfNeeded)
+                    .filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase()))
+                    .toList();
+            }
+            return List.of();
         }
 
         if (args[0].equalsIgnoreCase("guild")) {
@@ -1137,7 +1377,7 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
         if (!args[0].equalsIgnoreCase("admin")) return List.of();
 
         if (args.length == 2) {
-            return filter(List.of("editor", "guild", "add", "delete", "give", "reload", "currency", "log", "view", "resetlimit", "trace", "importsqlite"), args[1]);
+            return filter(List.of("editor", "guild", "add", "delete", "give", "reload", "currency", "log", "view", "resetlimit", "limitinfo", "trace", "importsqlite"), args[1]);
         }
         if (args[1].equalsIgnoreCase("guild")) {
             if (plugin.getHookManager().isGuildEnabled()) {
@@ -1161,8 +1401,27 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
                 default -> List.of();
             };
             case "resetlimit" -> switch (args.length) {
-                case 3 -> Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
-                case 4 -> plugin.getShopManager().getAllItems().stream().map(ShopItem::getId).map(OpShopCommand::quoteIfNeeded).toList();
+                case 3 -> {
+                    List<String> names = new ArrayList<>(Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
+                    names.add("all");
+                    yield filter(names, args[2]);
+                }
+                case 4 -> {
+                    List<String> ids = new ArrayList<>(plugin.getShopManager().getAllItems().stream()
+                        .map(ShopItem::getId).map(OpShopCommand::quoteIfNeeded).toList());
+                    ids.add("all");
+                    yield filter(ids, args[3]);
+                }
+                default -> List.of();
+            };
+            case "limitinfo" -> switch (args.length) {
+                case 3 -> Bukkit.getOnlinePlayers().stream().map(Player::getName)
+                    .filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase()))
+                    .collect(Collectors.toList());
+                case 4 -> plugin.getShopManager().getAllItems().stream()
+                    .map(ShopItem::getId).map(OpShopCommand::quoteIfNeeded)
+                    .filter(s -> s.toLowerCase().startsWith(args[3].toLowerCase()))
+                    .toList();
                 default -> List.of();
             };
             case "currency" -> {
@@ -1297,14 +1556,29 @@ public class OpShopCommand implements CommandExecutor, TabCompleter {
     }
 
     private String formatPrice(double price) {
-        if (price == Math.floor(price)) return String.valueOf((long) price);
-        return String.format("%.2f", price);
+        return com.ohtoai.opshop.shop.PriceUtil.format(price);
     }
 
     /** Join args from start (inclusive) to end (exclusive) with a space. */
     private static String joinArgs(String[] args, int start, int end) {
         if (start >= end) return "";
         return String.join(" ", java.util.Arrays.copyOfRange(args, start, end));
+    }
+
+    /**
+     * Parse a 1-indexed page argument into a 0-indexed page.
+     * Out-of-range values are clamped safely — the view builder clamps
+     * oversized pages down to the last real page.
+     */
+    private static int parsePageArg(String arg) {
+        long page;
+        try {
+            page = Long.parseLong(arg) - 1;
+        } catch (NumberFormatException e) {
+            return 10_000; // absurd input → clamped to the last page by the view
+        }
+        if (page <= 0) return 0;
+        return (int) Math.min(page, 10_000);
     }
 
     /** Strip matching surrounding quotes from a joined ID (Bukkit may not strip them). */

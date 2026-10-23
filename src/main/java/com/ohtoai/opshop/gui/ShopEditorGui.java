@@ -63,6 +63,7 @@ public class ShopEditorGui implements GuiHolder {
     private String editingItemId;
     private ShopItem editingItem;
     private boolean deleteConfirmPending = false;
+    private int editSourcePage = 0; // list page the edited item lives on — restored on back-to-list
 
     // Drag-and-drop move state
     private String pickedUpItemId = null;       // ID of item being moved
@@ -89,6 +90,9 @@ public class ShopEditorGui implements GuiHolder {
     private String anvilPriceCurrencyId;       // non-null = custom currency; null = vault/points
     private boolean anvilPriceBoth;            // true = "buy sell" format; false = single price
     private boolean anvilPriceIsSell;          // for single-price mode: true = editing sell, false = editing buy
+
+    // Anvil title-input state — waiting for player to type a page title
+    private boolean anvilTitleMode = false;
 
     // -------------------------------------------------------------------------
     // Construction & navigation
@@ -168,6 +172,7 @@ public class ShopEditorGui implements GuiHolder {
         this.editingItem = item;
         this.editingItemId = item.getId();
         this.deleteConfirmPending = false;
+        this.editSourcePage = this.page;
         build();
         player.openInventory(inventory);
     }
@@ -250,12 +255,29 @@ public class ShopEditorGui implements GuiHolder {
                 m("editor.prev-page", "&a← Previous Page"),
                 List.of(m("editor.page-num", "&7Page {p}/{t}", "{p}", String.valueOf(page + 1), "{t}", String.valueOf(totalPages)))));
         }
+        String currentTitle = shopManager.getPageTitle(page);
+        List<String> pageInfoLore = new ArrayList<>(List.of(
+            m("editor.total-items", "&7{count} total item(s)", "{count}", String.valueOf(totalItems))));
+        if (currentTitle != null && !currentTitle.isEmpty()) {
+            pageInfoLore.add(m("editor.page-title-current", "&7Title: &f{title}", "{title}", currentTitle));
+        }
         inventory.setItem(49, GuiUtils.makeItem(Material.PAPER,
             m("editor.page", "&ePage {page}/{total}", "{page}", String.valueOf(page + 1), "{total}", String.valueOf(totalPages)),
-            List.of(m("editor.total-items", "&7{count} total item(s)", "{count}", String.valueOf(totalItems)))));
+            pageInfoLore));
         inventory.setItem(50, GuiUtils.makeItem(Material.CLOCK,
             m("editor.reload", "&eReload from Database"),
             List.of(m("editor.reload-desc", "&7Reload all items from the database."))));
+
+        // 48: Set Page Title
+        List<String> titleBtnLore = new ArrayList<>(List.of(
+            m("editor.page-title-desc-1", "&7Set a title shown when this page opens."),
+            m("editor.page-title-desc-2", "&7Supports & / RGB colors. Shift+Click to clear."),
+            m("editor.page-title-desc-3", "&7Drop a name tag to use its colored name.")));
+        if (currentTitle != null && !currentTitle.isEmpty()) {
+            titleBtnLore.add(m("editor.page-title-current", "&7Title: &f{title}", "{title}", currentTitle));
+        }
+        inventory.setItem(48, GuiUtils.makeItem(Material.NAME_TAG,
+            m("editor.page-title-btn", "&d📝 Set Page Title"), titleBtnLore));
         if (page < totalPages - 1) {
             inventory.setItem(51, GuiUtils.makeItem(Material.ARROW,
                 m("editor.next-page", "&aNext Page →"),
@@ -307,6 +329,9 @@ public class ShopEditorGui implements GuiHolder {
         }
         // Pass 2: shift all pages after deleted down
         shiftPagesFrom(deletedPage + 1, -1);
+        // The deleted page's title dies with it (later titles already shifted down)
+        try { shopManager.deletePageTitle(deletedPage); }
+        catch (java.sql.SQLException e) { plugin.getLogger().log(Level.WARNING, "Failed to delete page title", e); }
         // Pass 3: bring temp items back to first available slots
         for (ShopItem item : pageItems) {
             int targetPage = deletedPage;
@@ -323,7 +348,7 @@ public class ShopEditorGui implements GuiHolder {
             + m("editor.delete-page-success", "&aDeleted page &e{page}&a. Items moved forward.", "{page}", String.valueOf(deletedPage + 1))));
     }
 
-    /** Shift all items on pages >= fromPage by delta pages. */
+    /** Shift all items (and page titles) on pages >= fromPage by delta pages. */
     private void shiftPagesFrom(int fromPage, int delta) {
         for (ShopItem item : shopManager.getAllItems()) {
             if (item.getPage() >= fromPage) {
@@ -331,6 +356,9 @@ public class ShopEditorGui implements GuiHolder {
                 try { shopManager.saveItem(item); } catch (java.sql.SQLException e) {}
             }
         }
+        // Page titles follow their pages
+        try { shopManager.shiftPageTitlesFrom(fromPage, delta); }
+        catch (java.sql.SQLException e) { plugin.getLogger().log(Level.WARNING, "Failed to shift page titles", e); }
     }
 
     /** Build the display icon with lore for a single item in the list view. */
@@ -530,13 +558,26 @@ public class ShopEditorGui implements GuiHolder {
             m("editor.transaction-log", "&eTransaction Log"),
             List.of(m("editor.transaction-log-desc-1", "&7View purchase/sell history for this item."))));
 
+        // 49: Refresh New-Item Announcement
+        inventory.setItem(49, GuiUtils.makeItem(Material.BELL,
+            m("editor.announce-refresh", "&d🔔 Refresh New-Item Notice"),
+            List.of(m("editor.announce-refresh-desc-1", "&7Mark this item as new again."),
+                m("editor.announce-refresh-desc-2", "&7Online players are notified now,"),
+                m("editor.announce-refresh-desc-3", "&7others see it on their next login."))));
+
         // ---- Row 5: Limits + actions ----
         String limitHints = m("editor.limit-controls", "&7L+1 R-1 ShiftL+10 ShiftR-10 Q=∞");
+        List<String> totalLimitLore = new ArrayList<>(List.of(limitHints));
+        if (editingItem.getTotalLimit() >= 0) {
+            totalLimitLore.add(m("editor.total-sold-progress", "&7Sold: &f{sold}&7/&f{limit}",
+                "{sold}", String.valueOf(editingItem.getTotalSold()),
+                "{limit}", String.valueOf(editingItem.getTotalLimit())));
+        }
         inventory.setItem(47, GuiUtils.makeItem(
             editingItem.getTotalLimit() >= 0 ? Material.REDSTONE : Material.GUNPOWDER,
             m("editor.total-limit", "&eTotal Limit: {value}",
                 "{value}", editingItem.getTotalLimit() >= 0 ? "&c" + editingItem.getTotalLimit() : m("editor.total-limit-unlimited", "&aUnlimited")),
-            List.of(limitHints)));
+            totalLimitLore));
         inventory.setItem(51, GuiUtils.makeItem(
             editingItem.getPlayerLimit() >= 0 ? Material.REDSTONE : Material.GUNPOWDER,
             m("editor.player-limit", "&ePlayer Limit: {value}",
@@ -741,8 +782,8 @@ public class ShopEditorGui implements GuiHolder {
             // Page info — no action
             if (slot == 49) return;
 
-            // Insert / Delete / Reload — cancel pickup first
-            if (slot == 46 || slot == 47 || slot == 50 || slot == 52) {
+            // Insert / Delete / Reload / Page title — cancel pickup first
+            if (slot == 46 || slot == 47 || slot == 48 || slot == 50 || slot == 52) {
                 cancelPickup(player);
                 handleListClick(player, slot, event);
                 return;
@@ -783,6 +824,12 @@ public class ShopEditorGui implements GuiHolder {
 
         // ── Normal mode: no ghost item ──
 
+        // Name tag dropped on the page-title button → its colored name becomes the title
+        if (slot == 48 && isCursorNameTag(player)) {
+            handleNameTagTitleDrop(player);
+            return;
+        }
+
         // If player has an item on cursor and clicked a non-grid slot, prevent loss
         if (!isGrid && event.getCursor() != null && event.getCursor().getType() != Material.AIR) {
             event.setCancelled(true);
@@ -812,6 +859,12 @@ public class ShopEditorGui implements GuiHolder {
             build();
             player.sendMessage(Messages.colorize(
                 plugin.getMessages().getPrefix() + m("editor.reload-success-msg", "&aItems reloaded from database.")));
+            return;
+        }
+
+        // Set page title
+        if (slot == 48) {
+            handlePageTitleClick(player, event);
             return;
         }
 
@@ -946,6 +999,124 @@ public class ShopEditorGui implements GuiHolder {
         }
     }
 
+    /**
+     * Set (left-click → anvil) or clear (shift+click) the current page's title.
+     * The title is shown in the shop GUI title bar when this page is opened.
+     */
+    private void handlePageTitleClick(Player player, InventoryClickEvent event) {
+        if (event.isShiftClick()) {
+            try {
+                shopManager.deletePageTitle(page);
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 0.8f);
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + m("editor.page-title-cleared", "&aPage {page} title cleared.",
+                        "{page}", String.valueOf(page + 1))));
+                build();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to clear page title", e);
+            }
+            return;
+        }
+        player.closeInventory();
+        openTitleAnvil(player, shopManager.getPageTitle(page));
+    }
+
+    /** Whether the player's live cursor holds a name tag. */
+    private boolean isCursorNameTag(Player player) {
+        ItemStack cursor = player.getItemOnCursor();
+        return cursor != null && cursor.getType() == Material.NAME_TAG;
+    }
+
+    /**
+     * Drop a name tag onto the title button — its (possibly RGB-colored)
+     * display name becomes the current page's title. The tag is consumed.
+     */
+    private void handleNameTagTitleDrop(Player player) {
+        ItemStack tag = player.getItemOnCursor();
+        String name = null;
+        if (tag != null && tag.hasItemMeta() && tag.getItemMeta().hasDisplayName()) {
+            name = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
+                .legacySection().serialize(tag.getItemMeta().displayName()).trim();
+        }
+        if (name == null || name.isEmpty()) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.page-title-nametag-empty",
+                    "&cThe name tag has no name! Name it in an anvil first.")));
+            return;
+        }
+        name = name.replace('§', '&'); // store & codes, same as anvil input
+        if (name.length() > 128) name = name.substring(0, 128);
+        try {
+            shopManager.setPageTitle(page, name);
+            player.setItemOnCursor(null); // consume the name tag
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.page-title-set", "&aPage {page} title set to: &r{title}",
+                    "{page}", String.valueOf(page + 1), "{title}", name)));
+            build();
+        } catch (SQLException e) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.db-error-title", "&cFailed to save page title!")));
+            plugin.getLogger().log(Level.WARNING, "Failed to save page title", e);
+        }
+    }
+
+    /** Open an anvil for typing the current page's title. */
+    private void openTitleAnvil(Player player, String currentTitle) {
+        this.anvilTitleMode = true;
+        List<String> lore = new ArrayList<>(List.of(
+            m("editor.page-title-anvil-hint", "&7Type the page title (& colors supported)"),
+            "&8---",
+            m("editor.anvil-esc-hint", "&7Press &oESC &7to cancel")));
+        String display = (currentTitle != null && !currentTitle.isEmpty())
+            ? currentTitle
+            : m("editor.page-title-placeholder", "New Title");
+        ItemStack inputItem = GuiUtils.makeItem(Material.PAPER, display, lore);
+        org.bukkit.inventory.InventoryView anvilView = player.openAnvil(null, true);
+        if (anvilView != null) {
+            anvilView.setItem(0, inputItem);
+        }
+    }
+
+    /** Handle anvil close for page-title input — apply the typed title. */
+    private void handleTitleAnvilClose(Player player, Inventory closedInv) {
+        anvilTitleMode = false;
+
+        // Read the typed text from slot 2 (anvil result slot) BEFORE clearing
+        ItemStack result = closedInv.getItem(2);
+        String input = null;
+        if (result != null && result.hasItemMeta() && result.getItemMeta().hasDisplayName()) {
+            input = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
+                .legacySection().serialize(result.getItemMeta().displayName()).trim();
+        }
+        closedInv.clear();
+
+        // ESC / no rename text typed → cancel
+        if (input == null || input.isEmpty()) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.page-title-cancelled", "&7Title unchanged.")));
+            scheduleEditorReopen(player);
+            return;
+        }
+        // Normalize: players type & codes; keep legacy § out of storage
+        input = input.replace('§', '&');
+        // Cap at the DB column limit (VARCHAR(128)) — the only hard constraint
+        if (input.length() > 128) input = input.substring(0, 128);
+
+        try {
+            shopManager.setPageTitle(page, input);
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.page-title-set", "&aPage {page} title set to: &r{title}",
+                    "{page}", String.valueOf(page + 1), "{title}", input)));
+        } catch (SQLException e) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.db-error-title", "&cFailed to save page title!")));
+            plugin.getLogger().log(Level.WARNING, "Failed to save page title", e);
+        }
+        scheduleEditorReopen(player);
+    }
+
     /** Quick-delete an item with shift+right-click. */
     private void deleteItemQuick(Player player, ShopItem item) {
         try {
@@ -959,7 +1130,7 @@ public class ShopEditorGui implements GuiHolder {
         }
     }
 
-    public boolean isAnvilOpen() { return anvilOpen || anvilPriceMode; }
+    public boolean isAnvilOpen() { return anvilOpen || anvilPriceMode || anvilTitleMode; }
 
     /** Handle anvil close for price input mode — parse the typed value and apply. */
     private void handlePriceAnvilClose(Player player, Inventory closedInv) {
@@ -995,19 +1166,18 @@ public class ShopEditorGui implements GuiHolder {
         if (both) {
             // Parse "buy sell" format
             String[] parts = input.split("\\s+");
-            double buy = 0, sellVal = 0;
-            try {
-                if (parts.length >= 1) buy = Double.parseDouble(parts[0]);
-                if (parts.length >= 2) sellVal = Double.parseDouble(parts[1]);
-                else sellVal = buy;
-            } catch (NumberFormatException e) {
+            if (parts.length == 0) {
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
                     + m("editor.invalid-price-format", "&cInvalid number format! Use: buy sell (e.g. 100 50)")));
                 scheduleEditorReopen(player);
                 return;
             }
-            buy = Math.max(0, buy);
-            sellVal = Math.max(0, sellVal);
+            Double buy = parseTypedPrice(player, parts[0], currencyId != null);
+            if (buy == null) { scheduleEditorReopen(player); return; }
+            Double sellVal = parts.length >= 2
+                ? parseTypedPrice(player, parts[1], currencyId != null)
+                : buy;
+            if (sellVal == null) { scheduleEditorReopen(player); return; }
             if (currencyId != null) {
                 editingItem.setCustomCurrencyPrice(currencyId, buy, sellVal);
                 player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
@@ -1027,16 +1197,8 @@ public class ShopEditorGui implements GuiHolder {
                         "{buy}", formatPrice(buy), "{sell}", formatPrice(sellVal))));
             }
         } else {
-            double value;
-            try {
-                value = Double.parseDouble(input);
-            } catch (NumberFormatException e) {
-                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
-                    + m("editor.invalid-number", "&cInvalid number! Type a price like: 100.5")));
-                scheduleEditorReopen(player);
-                return;
-            }
-            value = Math.max(0, value);
+            Double value = parseTypedPrice(player, input, currencyId != null);
+            if (value == null) { scheduleEditorReopen(player); return; }
             if (slot == 10) {
                 if (isSell) editingItem.setVaultSellPrice(value);
                 else editingItem.setVaultBuyPrice(value);
@@ -1055,6 +1217,45 @@ public class ShopEditorGui implements GuiHolder {
         }
 
         scheduleEditorReopen(player);
+    }
+
+    /**
+     * Parse and validate a typed price. Sends the error and returns null when invalid.
+     * Rules:
+     * <ul>
+     *   <li>Custom-item currencies: integers only (they are physical items).</li>
+     *   <li>Vault / PlayerPoints: 2 decimal places, 0 (= disabled) or at least 0.01.</li>
+     * </ul>
+     */
+    private Double parseTypedPrice(Player player, String input, boolean customCurrency) {
+        double value;
+        try {
+            value = Double.parseDouble(input.trim());
+        } catch (NumberFormatException e) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.invalid-number", "&cInvalid number! Type a price like: 100.5")));
+            return null;
+        }
+        if (customCurrency) {
+            if (value != Math.rint(value) || Math.abs(value) > Long.MAX_VALUE) {
+                player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                    + m("editor.price-integer-only", "&cCustom currencies only support integer prices!")));
+                return null;
+            }
+            return Math.max(0, value);
+        }
+        value = com.ohtoai.opshop.shop.PriceUtil.round2(value);
+        if (Math.abs(value) > com.ohtoai.opshop.shop.PriceUtil.MAX_PRICE) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.invalid-number", "&cInvalid number! Type a price like: 100.5")));
+            return null;
+        }
+        if (value != 0 && value < com.ohtoai.opshop.shop.PriceUtil.MIN_PRICE) {
+            player.sendMessage(Messages.colorize(plugin.getMessages().getPrefix()
+                + m("editor.price-min", "&cPrice must be &f0 &cor at least &f0.01&c.")));
+            return null;
+        }
+        return Math.max(0, value);
     }
 
     /** Schedule editor reopen on next tick — avoids InventoryCloseEvent re-entrancy bug. */
@@ -1109,10 +1310,14 @@ public class ShopEditorGui implements GuiHolder {
         // We just let it happen and finalize on close.
     }
 
-    /** Handle anvil close — dispatch to price-input or item-creation handler. */
+    /** Handle anvil close — dispatch to price-input, title-input, or item-creation handler. */
     public void handleAnvilClose(Player player, Inventory closedInv) {
         if (anvilPriceMode) {
             handlePriceAnvilClose(player, closedInv);
+            return;
+        }
+        if (anvilTitleMode) {
+            handleTitleAnvilClose(player, closedInv);
             return;
         }
         if (!anvilOpen) return;
@@ -1190,6 +1395,7 @@ public class ShopEditorGui implements GuiHolder {
         this.editingItem = item;
         this.editingItemId = item.getId();
         this.deleteConfirmPending = false;
+        this.editSourcePage = this.page;
         build();
     }
 
@@ -1380,6 +1586,14 @@ public class ShopEditorGui implements GuiHolder {
         // ---- Row 5: Limits ----
         if (slot == 47) { adjustLimit(true, event); return; }
         if (slot == 51) { adjustLimit(false, event); return; }
+
+        // ---- Row 5: Refresh New-Item Announcement ----
+        if (slot == 49) {
+            plugin.getNewItemNotifier().announceItem(editingItemId, player);
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.5f);
+            build();
+            return;
+        }
     }
 
     /**
@@ -1564,7 +1778,8 @@ public class ShopEditorGui implements GuiHolder {
         this.editingItem = null;
         this.editingItemId = null;
         this.deleteConfirmPending = false;
-        this.page = 0;
+        // Return to the page the edited item lives on (buildListView clamps if out of range)
+        this.page = editSourcePage;
         build();
     }
 
@@ -1701,10 +1916,7 @@ public class ShopEditorGui implements GuiHolder {
     }
 
     private static String formatPrice(double price) {
-        if (price == Math.floor(price) && !Double.isInfinite(price)) {
-            return String.valueOf((long) price);
-        }
-        return String.format("%.2f", price);
+        return com.ohtoai.opshop.shop.PriceUtil.format(price);
     }
 
     // -------------------------------------------------------------------------

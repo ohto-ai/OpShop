@@ -47,3 +47,9 @@ default-buy-sell-enabled: false
 
 locale: zh_CN
 debug: false
+
+# 多服自动同步（需 BungeeCord/Velocity 代理）
+# 管理员在一台服务器修改物品后，通过代理自动通知其他服务器刷新缓存
+# 仅在 database.type: mysql 时生效
+bungee-sync:
+  enabled: true

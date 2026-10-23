@@ -170,7 +170,6 @@ public class TransactionLogGui implements GuiHolder {
     @Override public Inventory getInventory() { return inventory; }
 
     private String formatPrice(double p) {
-        if (p == Math.floor(p)) return String.valueOf((long) p);
-        return String.format("%.2f", p);
+        return com.ohtoai.opshop.shop.PriceUtil.format(p);
     }
 }

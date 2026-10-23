@@ -108,10 +108,7 @@ public final class GuiUtils {
     }
 
     private static String formatPrice(double price) {
-        if (price == Math.floor(price)) {
-            return String.valueOf((long) price);
-        }
-        return String.format("%.2f", price);
+        return com.ohtoai.opshop.shop.PriceUtil.format(price);
     }
 
     /**

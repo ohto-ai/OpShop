@@ -104,7 +104,6 @@ public class TraceViewGui implements GuiHolder {
     public Inventory getInventory() { return inventory; }
 
     private String formatPrice(double price) {
-        if (price == Math.floor(price)) return String.valueOf((long) price);
-        return String.format("%.2f", price);
+        return com.ohtoai.opshop.shop.PriceUtil.format(price);
     }
 }

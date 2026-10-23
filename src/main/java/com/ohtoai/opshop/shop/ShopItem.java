@@ -48,11 +48,20 @@ public class ShopItem {
     private long createdAt;
     private long updatedAt;
 
+    /**
+     * Timestamp when this item was (re-)announced as new.
+     * Newly created items are announced immediately; players see items whose
+     * announcedAt is newer than their own "seen" watermark on join.
+     * 0 = never announced (legacy items created before this feature).
+     */
+    private long announcedAt;
+
     public ShopItem(String id) {
         this.id = id;
         long now = System.currentTimeMillis();
         this.createdAt = now;
         this.updatedAt = now;
+        this.announcedAt = now; // new items are announced on creation
     }
 
     // --- Getters ---
@@ -124,6 +133,7 @@ public class ShopItem {
 
     public long getCreatedAt() { return createdAt; }
     public long getUpdatedAt() { return updatedAt; }
+    public long getAnnouncedAt() { return announcedAt; }
 
     // --- Setters ---
     public void setPage(int page) { this.page = page; touch(); }
@@ -158,6 +168,8 @@ public class ShopItem {
     public void setCustomSellPrice(double v) { this.customSellPrice = v; touch(); }
     public void setCreatedAt(long v) { this.createdAt = v; }
     public void setUpdatedAt(long v) { this.updatedAt = v; }
+    /** Announcement marker — set from DB on load, or by the re-announce button. Not a content edit, so no touch(). */
+    public void setAnnouncedAt(long v) { this.announcedAt = v; }
 
     private void touch() { this.updatedAt = System.currentTimeMillis(); }
 }

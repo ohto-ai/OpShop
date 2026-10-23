@@ -180,6 +180,10 @@ public class CurrencyManager {
         globalDefaults.add(entry);
 
         plugin.getLogger().info("Added custom currency: " + id + " (" + displayName + ")");
+
+        // Notify other servers behind BungeeCord to reload
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
+
         return true;
     }
 
@@ -212,6 +216,10 @@ public class CurrencyManager {
         }
 
         plugin.getLogger().info("Deleted custom currency: " + id);
+
+        // Notify other servers behind BungeeCord to reload
+        OpShopPlugin.getInstance().sendBungeeSyncNotification();
+
         return true;
     }
 

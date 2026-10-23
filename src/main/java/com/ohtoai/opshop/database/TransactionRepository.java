@@ -31,9 +31,9 @@ public class TransactionRepository {
             ps.setString(3, record.getShopItemId());
             ps.setString(4, record.getType().name());
             ps.setString(5, record.getCurrencyId());
-            ps.setDouble(6, record.getPricePerUnit());
+            ps.setLong(6, com.ohtoai.opshop.shop.PriceUtil.toCents(record.getPricePerUnit()));
             ps.setInt(7, record.getQuantity());
-            ps.setDouble(8, record.getTotalPrice());
+            ps.setLong(8, com.ohtoai.opshop.shop.PriceUtil.toCents(record.getTotalPrice()));
             ps.setBytes(9, record.getItemSnapshot());
             ps.setLong(10, record.getTimestamp());
 
@@ -168,9 +168,9 @@ public class TransactionRepository {
                     rs.getString("shop_item_id"),
                     TransactionRecord.TransactionType.valueOf(rs.getString("type")),
                     rs.getString("currency_id"),
-                    rs.getDouble("price_per_unit"),
+                    com.ohtoai.opshop.shop.PriceUtil.fromCents(rs.getLong("price_per_unit")),
                     rs.getInt("quantity"),
-                    rs.getDouble("total_price"),
+                    com.ohtoai.opshop.shop.PriceUtil.fromCents(rs.getLong("total_price")),
                     rs.getBytes("item_snapshot"),
                     rs.getLong("timestamp")
                 );

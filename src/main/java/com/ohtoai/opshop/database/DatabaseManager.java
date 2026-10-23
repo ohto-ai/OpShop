@@ -7,6 +7,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.logging.Level;
@@ -98,13 +99,15 @@ public class DatabaseManager {
             player_limit        INT NOT NULL DEFAULT -1,
             refund_limit                BOOLEAN NOT NULL DEFAULT 0,
             guild_restriction_enabled   BOOLEAN NOT NULL DEFAULT 0,
-            vault_buy_price     DOUBLE NOT NULL DEFAULT 0,
-            vault_sell_price    DOUBLE NOT NULL DEFAULT 0,
-            pp_buy_price        DOUBLE NOT NULL DEFAULT 0,
-            pp_sell_price       DOUBLE NOT NULL DEFAULT 0,
+            broadcast_on_trade          BOOLEAN NOT NULL DEFAULT 0,
+            announced_at                BIGINT NOT NULL DEFAULT 0,
+            vault_buy_price     BIGINT NOT NULL DEFAULT 0,
+            vault_sell_price    BIGINT NOT NULL DEFAULT 0,
+            pp_buy_price        BIGINT NOT NULL DEFAULT 0,
+            pp_sell_price       BIGINT NOT NULL DEFAULT 0,
             custom_currency_id  VARCHAR(64),
-            custom_buy_price    DOUBLE NOT NULL DEFAULT 0,
-            custom_sell_price   DOUBLE NOT NULL DEFAULT 0,
+            custom_buy_price    BIGINT NOT NULL DEFAULT 0,
+            custom_sell_price   BIGINT NOT NULL DEFAULT 0,
             created_at          BIGINT NOT NULL,
             updated_at          BIGINT NOT NULL
         )
@@ -115,8 +118,8 @@ public class DatabaseManager {
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             shop_item_id VARCHAR(64) NOT NULL,
             currency_id VARCHAR(64) NOT NULL,
-            buy_price   DOUBLE NOT NULL DEFAULT 0,
-            sell_price  DOUBLE NOT NULL DEFAULT 0,
+            buy_price   BIGINT NOT NULL DEFAULT 0,
+            sell_price  BIGINT NOT NULL DEFAULT 0,
             FOREIGN KEY (shop_item_id) REFERENCES shop_items(id) ON DELETE CASCADE,
             UNIQUE (shop_item_id, currency_id)
         )
@@ -130,9 +133,9 @@ public class DatabaseManager {
             shop_item_id    VARCHAR(64) NOT NULL,
             type            VARCHAR(8) NOT NULL,
             currency_id     VARCHAR(64) NOT NULL,
-            price_per_unit  DOUBLE NOT NULL,
+            price_per_unit  BIGINT NOT NULL,
             quantity        INT NOT NULL,
-            total_price     DOUBLE NOT NULL,
+            total_price     BIGINT NOT NULL,
             item_snapshot   BLOB,
             timestamp       BIGINT NOT NULL
         )
@@ -143,8 +146,8 @@ public class DatabaseManager {
             id          INT AUTO_INCREMENT PRIMARY KEY,
             shop_item_id VARCHAR(64) NOT NULL,
             currency_id VARCHAR(64) NOT NULL,
-            buy_price   DOUBLE NOT NULL DEFAULT 0,
-            sell_price  DOUBLE NOT NULL DEFAULT 0,
+            buy_price   BIGINT NOT NULL DEFAULT 0,
+            sell_price  BIGINT NOT NULL DEFAULT 0,
             FOREIGN KEY (shop_item_id) REFERENCES shop_items(id) ON DELETE CASCADE,
             UNIQUE (shop_item_id, currency_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -158,13 +161,58 @@ public class DatabaseManager {
             shop_item_id    VARCHAR(64) NOT NULL,
             type            VARCHAR(8) NOT NULL,
             currency_id     VARCHAR(64) NOT NULL,
-            price_per_unit  DOUBLE NOT NULL,
+            price_per_unit  BIGINT NOT NULL,
             quantity        INT NOT NULL,
-            total_price     DOUBLE NOT NULL,
+            total_price     BIGINT NOT NULL,
             item_snapshot   BLOB,
             timestamp       BIGINT NOT NULL,
             INDEX idx_transactions_player (player_uuid, timestamp),
             INDEX idx_transactions_time (timestamp)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+
+    // Per-page titles shown in the shop GUI title bar (0-indexed page, colored with &)
+    private static final String CREATE_SHOP_PAGE_TITLES = """
+        CREATE TABLE IF NOT EXISTS shop_page_titles (
+            page   INT PRIMARY KEY,
+            title  VARCHAR(128) NOT NULL
+        )
+        """;
+
+    private static final String CREATE_SHOP_PAGE_TITLES_MYSQL = """
+        CREATE TABLE IF NOT EXISTS shop_page_titles (
+            page   INT PRIMARY KEY,
+            title  VARCHAR(128) NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+
+    // Per-player watermark for new-item join notifications (announced_at > seen_at)
+    private static final String CREATE_PLAYER_NEW_ITEM_SEEN = """
+        CREATE TABLE IF NOT EXISTS player_new_item_seen (
+            player_uuid  VARCHAR(36) PRIMARY KEY,
+            seen_at      BIGINT NOT NULL
+        )
+        """;
+
+    private static final String CREATE_PLAYER_NEW_ITEM_SEEN_MYSQL = """
+        CREATE TABLE IF NOT EXISTS player_new_item_seen (
+            player_uuid  VARCHAR(36) PRIMARY KEY,
+            seen_at      BIGINT NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+
+    // Internal schema bookkeeping (migration markers etc.)
+    private static final String CREATE_OPSHOP_META = """
+        CREATE TABLE IF NOT EXISTS opshop_meta (
+            k  VARCHAR(64) PRIMARY KEY,
+            v  VARCHAR(255) NOT NULL
+        )
+        """;
+
+    private static final String CREATE_OPSHOP_META_MYSQL = """
+        CREATE TABLE IF NOT EXISTS opshop_meta (
+            k  VARCHAR(64) PRIMARY KEY,
+            v  VARCHAR(255) NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
 
@@ -234,6 +282,9 @@ public class DatabaseManager {
             stmt.execute(isMysql ? CREATE_TRANSACTIONS_MYSQL : CREATE_TRANSACTIONS);
             stmt.execute(isMysql ? CREATE_PLAYER_PURCHASES_MYSQL : CREATE_PLAYER_PURCHASES);
             stmt.execute(isMysql ? CREATE_SHOP_ITEM_GUILDS_MYSQL : CREATE_SHOP_ITEM_GUILDS);
+            stmt.execute(isMysql ? CREATE_PLAYER_NEW_ITEM_SEEN_MYSQL : CREATE_PLAYER_NEW_ITEM_SEEN);
+            stmt.execute(isMysql ? CREATE_SHOP_PAGE_TITLES_MYSQL : CREATE_SHOP_PAGE_TITLES);
+            stmt.execute(isMysql ? CREATE_OPSHOP_META_MYSQL : CREATE_OPSHOP_META);
             // Migration: add refund_limit column (silently skip if already exists)
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN refund_limit BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
             // Migration: add generate_unique_id column
@@ -242,6 +293,47 @@ public class DatabaseManager {
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN guild_restriction_enabled BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
             // Migration: add broadcast_on_trade column
             try { stmt.execute("ALTER TABLE shop_items ADD COLUMN broadcast_on_trade BOOLEAN NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
+            // Migration: add announced_at column (new-item notifications)
+            try { stmt.execute("ALTER TABLE shop_items ADD COLUMN announced_at BIGINT NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
+            // Migration: convert legacy whole-unit price columns to integer cents
+            migratePricesToCents(conn);
+        }
+    }
+
+    /**
+     * One-time migration: price columns used to be stored as DOUBLE in whole
+     * currency units. They are now integer cents (BIGINT). Existing rows are
+     * multiplied by 100, guarded by a marker in opshop_meta so it runs once.
+     * Runs in a single transaction so a crash mid-way cannot leave the data
+     * half-converted. New databases start with the cents schema and no rows
+     * to convert.
+     */
+    private static void migratePricesToCents(Connection conn) throws SQLException {
+        String flag = "prices_to_cents_v1";
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                 "SELECT v FROM opshop_meta WHERE k = '" + flag + "'")) {
+            if (rs.next()) return; // already migrated
+        }
+
+        boolean prevAutoCommit = conn.getAutoCommit();
+        conn.setAutoCommit(false);
+        try (Statement stmt = conn.createStatement()) {
+            for (String col : new String[]{
+                "vault_buy_price", "vault_sell_price",
+                "pp_buy_price", "pp_sell_price",
+                "custom_buy_price", "custom_sell_price"}) {
+                stmt.executeUpdate("UPDATE shop_items SET " + col + " = ROUND(" + col + " * 100)");
+            }
+            stmt.executeUpdate("UPDATE shop_item_prices SET buy_price = ROUND(buy_price * 100), sell_price = ROUND(sell_price * 100)");
+            stmt.executeUpdate("UPDATE transactions SET price_per_unit = ROUND(price_per_unit * 100), total_price = ROUND(total_price * 100)");
+            stmt.executeUpdate("INSERT INTO opshop_meta (k, v) VALUES ('" + flag + "', '1')");
+            conn.commit();
+        } catch (SQLException e) {
+            conn.rollback();
+            throw e;
+        } finally {
+            conn.setAutoCommit(prevAutoCommit);
         }
     }
 

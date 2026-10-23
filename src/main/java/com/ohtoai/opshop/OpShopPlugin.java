@@ -11,11 +11,15 @@ import com.ohtoai.opshop.listener.PlayerListener;
 import com.ohtoai.opshop.placeholder.OpShopExpansion;
 import com.ohtoai.opshop.shop.ShopManager;
 import com.ohtoai.opshop.shop.TransactionProcessor;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.plugin.messaging.PluginMessageListener;
+
+import com.google.common.io.ByteStreams;
 
 import java.util.logging.Level;
 
-public final class OpShopPlugin extends JavaPlugin {
+public final class OpShopPlugin extends JavaPlugin implements PluginMessageListener {
 
     private static OpShopPlugin instance;
 
@@ -27,6 +31,7 @@ public final class OpShopPlugin extends JavaPlugin {
     private DatabaseManager databaseManager;
     private TransactionProcessor transactionProcessor;
     private HookManager hookManager;
+    private com.ohtoai.opshop.shop.NewItemNotifier newItemNotifier;
 
     // GUI
     private ShopMainGui shopMainGui;
@@ -68,6 +73,9 @@ public final class OpShopPlugin extends JavaPlugin {
         this.transactionProcessor = new TransactionProcessor(
             this, currencyManager, shopManager, databaseManager);
 
+        // Initialize new-item notifications
+        this.newItemNotifier = new com.ohtoai.opshop.shop.NewItemNotifier(this);
+
         // Initialize GUIs
         this.shopMainGui = new ShopMainGui(this, shopManager, currencyManager, transactionProcessor);
 
@@ -88,7 +96,66 @@ public final class OpShopPlugin extends JavaPlugin {
             new OpShopExpansion(this, currencyManager, shopManager).register();
         }
 
+        // BungeeCord cross-server sync
+        if (pluginConfig.isBungeeSyncEnabled() && databaseManager.isMySQL()) {
+            // Register both legacy and modern channel names for maximum compatibility
+            getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
+            getServer().getMessenger().registerIncomingPluginChannel(this, "BungeeCord", this);
+            getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
+            getServer().getMessenger().registerIncomingPluginChannel(this, "bungeecord:main", this);
+            getLogger().info("BungeeCord sync enabled — cross-server reload notifications active.");
+        }
+
         getLogger().log(Level.INFO, "OpShop v{0} enabled!", getPluginMeta().getVersion());
+    }
+
+    // --- BungeeCord cross-server sync ---
+
+    @Override
+    public void onPluginMessageReceived(String channel, Player player, byte[] message) {
+        // Accept both legacy and modern channel names
+        if (!"BungeeCord".equals(channel) && !"bungeecord:main".equals(channel)) return;
+
+        try {
+            var in = ByteStreams.newDataInput(message);
+            String subChannel = in.readUTF();
+            if (!"opshop:reload".equals(subChannel)) return;
+
+            // Read and discard the length-prefixed payload (Forward format)
+            short len = in.readShort();
+            if (len > 0) {
+                byte[] payload = new byte[len];
+                in.readFully(payload);
+            }
+
+            getLogger().info("[OShop] Received reload notification via BungeeCord — refreshing data.");
+            getServer().getScheduler().runTask(this, () -> {
+                shopManager.reloadFromDatabase();
+                currencyManager.loadFromConfig(pluginConfig);
+            });
+        } catch (Exception e) {
+            getLogger().log(Level.WARNING, "[OShop] Failed to process BungeeCord plugin message", e);
+        }
+    }
+
+    /**
+     * Notify other servers behind the same BungeeCord/Velocity proxy to reload
+     * their cached shop data. Safe to call on every data-changing write.
+     */
+    public void sendBungeeSyncNotification() {
+        if (!pluginConfig.isBungeeSyncEnabled() || !databaseManager.isMySQL()) return;
+
+        Player player = getServer().getOnlinePlayers().stream().findAny().orElse(null);
+        if (player == null) return;
+
+        var out = ByteStreams.newDataOutput();
+        out.writeUTF("Forward");
+        out.writeUTF("ALL");
+        out.writeUTF("opshop:reload");
+        out.writeShort(0); // empty payload
+
+        // Send on legacy channel name — Paper normalizes to bungeecord:main internally
+        player.sendPluginMessage(this, "BungeeCord", out.toByteArray());
     }
 
     @Override
@@ -133,6 +200,10 @@ public final class OpShopPlugin extends JavaPlugin {
 
     public HookManager getHookManager() {
         return hookManager;
+    }
+
+    public com.ohtoai.opshop.shop.NewItemNotifier getNewItemNotifier() {
+        return newItemNotifier;
     }
 
     public ShopMainGui getShopMainGui() {

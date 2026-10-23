@@ -63,11 +63,28 @@ public class ShopMainGui implements GuiHolder {
      * Open the main shop view showing all items.
      */
     public void open(Player player) {
+        open(player, 0);
+    }
+
+    /**
+     * Open the main shop view at a specific page (0-indexed; clamped to the
+     * last non-empty page by the view builder).
+     */
+    public void open(Player player, int page) {
         this.playerGuildId.remove(player.getUniqueId());
         this.playerGuildName.remove(player.getUniqueId());
         com.ohtoai.opshop.item.PlaceholderReplacer.clearGuildContext(player.getUniqueId());
-        this.currentPage = 0;
+        this.currentPage = Math.max(0, page);
         buildAndShow(player);
+    }
+
+    /**
+     * Jump the shared view to a page without touching guild context.
+     * Used by /oshop item so the detail view's Back button lands on the
+     * item's page instead of wherever the last viewer left the shop.
+     */
+    public void setCurrentPage(int page) {
+        this.currentPage = Math.max(0, page);
     }
 
     /**
@@ -85,10 +102,24 @@ public class ShopMainGui implements GuiHolder {
 
     private void buildAndShow(Player player) {
         String gName = guildNameFor(player);
-        String title = gName != null
-            ? plugin.getMessages().get("gui.guild-title", "&8{name} Shop",
-                "{name}", gName)
-            : plugin.getPluginConfig().getGuiTitle();
+        String title;
+        if (gName != null) {
+            title = plugin.getMessages().get("gui.guild-title", "&8{name} Shop",
+                "{name}", gName);
+        } else {
+            // Clamp the page before reading its title (the view builder clamps again)
+            int maxItemPage = getFilteredItems(player).stream()
+                .mapToInt(ShopItem::getPage).max().orElse(0);
+            if (currentPage > maxItemPage) currentPage = maxItemPage;
+            if (currentPage < 0) currentPage = 0;
+            String pageTitle = shopManager.getPageTitle(currentPage);
+            title = (pageTitle != null && !pageTitle.isEmpty())
+                ? pageTitle
+                : plugin.getPluginConfig().getGuiTitle();
+        }
+        // No length truncation: modern versions send titles as JSON chat
+        // components, and long colored titles render fine (tested in-game).
+        // Titles are already capped at 128 chars (DB column) at input time.
         this.inventory = GuiUtils.createInventory(this, ROWS, title);
 
         Material fillerMaterial = Material.matchMaterial(plugin.getPluginConfig().getFillerMaterial());
@@ -134,6 +165,9 @@ public class ShopMainGui implements GuiHolder {
             .sorted(Comparator.comparingInt(ShopItem::getSlot))
             .toList();
 
+        // Fetch the viewer's purchase counts in one query (for limit display)
+        Map<String, Integer> playerCounts = fetchPlayerCounts(player);
+
         for (int i = 0; i < itemsOnPage.size() && i < ITEMS_PER_PAGE; i++) {
             ShopItem item = itemsOnPage.get(i);
             int displaySlot = item.getSlot(); // use item's slot as grid position
@@ -147,7 +181,7 @@ public class ShopMainGui implements GuiHolder {
                 displayItem = com.ohtoai.opshop.item.PlaceholderReplacer.applyPreview(displayItem, player);
             }
 
-            displayItem = addPriceInfo(displayItem, item, player);
+            displayItem = addPriceInfo(displayItem, item, player, playerCounts);
             inventory.setItem(displaySlot, displayItem);
         }
 
@@ -199,7 +233,8 @@ public class ShopMainGui implements GuiHolder {
     /**
      * Add buy/sell price preview lore to a display item.
      */
-    private ItemStack addPriceInfo(ItemStack displayItem, ShopItem item, Player player) {
+    private ItemStack addPriceInfo(ItemStack displayItem, ShopItem item, Player player,
+                                   Map<String, Integer> playerCounts) {
         ItemMeta meta = displayItem.getItemMeta();
         List<Component> lore = meta.hasLore() ? new ArrayList<>(meta.lore()) : new ArrayList<>();
         lore.add(Component.empty());
@@ -253,6 +288,23 @@ public class ShopMainGui implements GuiHolder {
                     lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.guild-more",
                         "&7  ... +{count} more", "{count}", String.valueOf(remaining)))));
                 }
+            }
+        }
+        // Purchase limit info
+        if (item.getTotalLimit() >= 0 || item.getPlayerLimit() >= 0) {
+            lore.add(Component.empty());
+            if (item.getTotalLimit() >= 0) {
+                int remaining = Math.max(0, item.getTotalLimit() - item.getTotalSold());
+                lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.limit-remaining-total",
+                    "&cTotal limit: &f{remaining}&c/{limit} &7left",
+                    "{remaining}", String.valueOf(remaining), "{limit}", String.valueOf(item.getTotalLimit())))));
+            }
+            if (item.getPlayerLimit() >= 0) {
+                int bought = playerCounts.getOrDefault(item.getId(), 0);
+                int remaining = Math.max(0, item.getPlayerLimit() - bought);
+                lore.add(GuiUtils.toComponent(Messages.colorize(m("gui.limit-remaining-player",
+                    "&cYour limit: &f{remaining}&c/{limit} &7left",
+                    "{remaining}", String.valueOf(remaining), "{limit}", String.valueOf(item.getPlayerLimit())))));
             }
         }
         lore.add(Component.empty());
@@ -376,7 +428,17 @@ public class ShopMainGui implements GuiHolder {
     public String getCurrentGuildName(Player player) { return guildNameFor(player); }
 
     private String formatPrice(double price) {
-        if (price == Math.floor(price)) return String.valueOf((long) price);
-        return String.format("%.2f", price);
+        return com.ohtoai.opshop.shop.PriceUtil.format(price);
+    }
+
+    /** Fetch the viewer's purchase counts in one query (empty map on DB error). */
+    private Map<String, Integer> fetchPlayerCounts(Player player) {
+        try {
+            return shopManager.getAllPlayerPurchases(player.getUniqueId());
+        } catch (java.sql.SQLException e) {
+            plugin.getLogger().log(java.util.logging.Level.WARNING,
+                "Failed to read player purchase counts for GUI", e);
+            return Map.of();
+        }
     }
 }

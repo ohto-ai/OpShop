@@ -28,7 +28,9 @@ import java.util.regex.Pattern;
  */
 public class Messages {
 
-    private static final Pattern COLOR_CODE_PATTERN = Pattern.compile("&([0-9a-fk-or])",
+    // Legacy codes (0-9a-f, k-o, r) plus x — the Bungee-style RGB prefix:
+    // &x&R&R&G&G&B&B becomes §x§R§R§G§G§B§B, which Adventure parses as hex color.
+    private static final Pattern COLOR_CODE_PATTERN = Pattern.compile("&([0-9a-fk-orx])",
         Pattern.CASE_INSENSITIVE);
     private static final LegacyComponentSerializer LEGACY_SERIALIZER =
         LegacyComponentSerializer.legacySection();
